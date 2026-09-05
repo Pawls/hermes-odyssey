@@ -204,3 +204,47 @@ listener is written:
 after which `PluginManager` skips a plugin that imports through the old paths unless
 `plugins.allow_deprecated_imports` is set. Anything written this week must import the
 current paths, not the shims. `hermes plugins compat` reports on this.
+
+---
+
+## 5. Phase 0 log
+
+### 5.1 Confirmed on loopback, 2026-09-05
+
+A smoke run of `hermes dashboard --host 127.0.0.1 --no-open --skip-build`, with the
+credential supplied through the two `HERMES_DASHBOARD_BASIC_AUTH_*` env vars and
+`config.yaml` untouched:
+
+- The server starts and prints `HERMES_DASHBOARD_READY port=9119`. `--skip-build` avoids
+  npm entirely; the prebuilt SPA in `hermes_cli/web_dist/` serves fine.
+- `GET /api/sessions` returns the **whole session store, every source**: 40 rows spanning
+  `tui`, `cli`, `telegram` and `desktop`, each carrying title, model, cwd, message and
+  tool counts, token totals and `ended_at`. This is a phone-ready surface as it stands and
+  is what the Sessions screen renders.
+- `GET /api/status` reports `gateway_running: true` with whatsapp, signal and telegram all
+  `connected`, so the dashboard process sees the separate gateway's state.
+- **`GET /api/ws` completes the JSON-RPC handshake and pushes `gateway.ready` with its
+  skin payload**, exactly as `tui_gateway/ws.py` documents. This is the single most
+  important thing to have proven: the phone's transport works, unchanged, today.
+- On loopback the WS credential is `?token=<session token>`, the same value the SPA gets
+  as `window.__HERMES_SESSION_TOKEN__`. In gated mode that path is **rejected** and only
+  `?ticket=` (single use, 30s) or `?internal=` are accepted — see `_ws_auth_reason` in
+  `hermes_cli/web_server_chat.py:220`. The Phase 1 token provider has to reckon with this:
+  a phone holding a long-lived bearer still cannot open the WS with it, and will need
+  either a ticket-minting round trip or a fourth credential shape.
+
+That last bullet is a Phase 1 design constraint that was not visible from reading alone.
+
+### 5.2 Still unproven, and why the LAN run is needed
+
+- The `basic` provider actually engaging. It registers only on a non-loopback bind, so
+  loopback proves nothing about it.
+- **§4.1**, the whole reason Phase 0 exists. Open the live telegram session in `/chat` from
+  the phone while the gateway is mid-turn and watch whether tokens stream.
+
+### 5.3 Machine facts, valid until they are not
+
+- LAN address `192.168.1.50`.
+- The hermes venv `python.exe` has **no inbound firewall allow rule** (only the Electron
+  `hermes.exe` does), so the first LAN bind raises a Windows Firewall prompt. Private
+  networks only.
