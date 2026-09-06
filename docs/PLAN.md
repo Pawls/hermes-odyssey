@@ -248,3 +248,64 @@ That last bullet is a Phase 1 design constraint that was not visible from readin
 - The hermes venv `python.exe` has **no inbound firewall allow rule** (only the Electron
   `hermes.exe` does), so the first LAN bind raises a Windows Firewall prompt. Private
   networks only.
+
+### 5.4 Read-only findings, 2026-09-06
+
+Against the same `code_sha`. Everything here is read, not run — §5.5 says what a run would
+settle.
+
+**Plugins load in the dashboard process.** `hermes_cli/main.py:2467` calls
+`discover_plugins()` before `start_server`, with the comment that the dashboard's runtime
+depends on plugin-registered providers. So `register(ctx)` runs there, and anything the
+plugin starts at registration runs in the process that owns port 9119.
+
+**A plugin can mount its own FastAPI router, including a WebSocket.**
+`_mount_plugin_api_routes` (`hermes_cli/web_server_dashboard.py:757`) imports
+`<plugin>/dashboard/<api file>` and calls `app.include_router(router,
+prefix="/api/plugins/<name>")`. The manifest is `dashboard/manifest.json` with an `api`
+key; the bundled `kanban` plugin is the worked example. An `APIRouter` carries
+`@router.websocket` as well as HTTP routes, so the plugin owns both surfaces without
+touching core. Gate, from `_plugin_api_mount_skip_reason` (line 741): a **user** plugin's
+Python is imported only when its name is in `plugins.enabled` and absent from
+`plugins.disabled` (GHSA-mcfc-hp25-cjv7). Project plugins are never auto-imported.
+
+**A bearer token cannot mint a WS ticket through the stock route.** `POST
+/api/auth/ws-ticket` calls `_require_session`, which reads `request.state.session`
+(`hermes_cli/dashboard_auth/routes.py:430`). The token middleware sets
+`token_principal` and `token_authenticated`, never a `session`, so registering that path
+with `register_token_route` would clear the outer gate and then 401. `mint_ticket` is
+importable from `hermes_cli.dashboard_auth.ws_tickets`, so the plugin's own route can
+verify the phone's bearer and mint a ticket itself. The round trip is unavoidable either
+way: `token_auth_middleware` is HTTP middleware and never sees a WebSocket scope.
+
+**§4.1 is answered, and it is the pessimistic branch.** The watch mechanism is
+process-local. `_mirror_subagent_to_child` (`tui_gateway/agent_callbacks.py:31`) turns
+relayed `subagent.*` events into native stream events on the child sid, but it reads
+`_child_mirrors` and `_active_child_runs`, both plain module dicts. Nothing crosses to the
+separate gateway process. A phone on the dashboard's `/api/ws` therefore sees the
+gateway's sessions and their stored history through `session.list` / `session.resume`, and
+does **not** see a turn streaming in the other process.
+
+The fan-out to fix that already exists and is not PTY-specific: `/api/pub` rebroadcasts
+verbatim newline-framed JSON to every `/api/events` subscriber on the same channel
+(`hermes_cli/web_routers/chat_ws.py:576`). So the read-only live view is the same plugin,
+loaded in the **gateway** process, registering `on_stream_start` / `on_stream_delta` /
+`on_stream_end` and `pre_tool_call` / `post_tool_call` and publishing to `/api/pub`.
+Approvals are the exception: `pre_approval_request` and `post_approval_response` are
+observers whose return value is ignored, so answering one from the phone has to go through
+`pre_tool_call`, which can decide.
+
+**Consequence for Phase 1.** The `DashboardAuthProvider` on the token seam (§3 Phase 1,
+item 1) stops being the load-bearing piece; the plugin's own router is. Keep the provider
+only if a stock route ever has to accept the phone's bearer. Item 3, the TLS listener,
+survives unchanged and is still the security boundary.
+
+### 5.5 What only a run can settle
+
+- The `basic` provider engaging on a non-loopback bind, and the Windows Firewall prompt
+  for the hermes venv `python.exe` (§5.3).
+- Whether a phone browser in `/chat` really shows nothing while the gateway streams a
+  telegram turn. §5.4 predicts silence; watching it is cheap and the prediction is worth
+  falsifying.
+- Whether `include_router` on a plugin router accepts a `@router.websocket` route in this
+  FastAPI version. Expected yes; unproven here.
