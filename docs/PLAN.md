@@ -368,3 +368,75 @@ are now moot — the listener replaces that bind, and it is the same `python.exe
 prompt just moves. `include_router` accepting a `@router.websocket` route is still untested; the
 router mounted here carries HTTP routes only. Falsifying the §5.4 prediction that a phone in
 `/chat` sees nothing while the gateway streams remains worth one cheap run.
+
+### 5.7 Phase 1 log — the listener and the CLI, 2026-09-06
+
+Phase 1 is code-complete. `plugin/` gained the certificate (`hr_identity.py`), the QR encoder
+(`hr_qr.py`), the pairing payload (`hr_pairing.py`), the TLS reverse proxy (`hr_listener.py`) and
+the CLI (`hr_cli.py`). 116 tests pass under the Hermes venv interpreter.
+
+**The listener authenticates; the dashboard does not.** This is the single most important thing
+about the design and it was not in §3. On a loopback bind the dashboard trusts its peer, and every
+proxied request arrives from loopback *because that is what a proxy is* — so a listener that
+forwarded an unauthenticated request would hand the whole dashboard to anyone on the Wi-Fi. Every
+request and every WebSocket upgrade is therefore checked against the device store before anything
+is forwarded. The plugin's own routes are gated twice, by the listener and by the token seam;
+every other path is gated only here. There is no unauthenticated route at all, not even a
+`/hello`: the TLS handshake already proves which machine answered, so a phone racing candidate
+addresses needs nothing else, and a drive-by learns nothing.
+
+**Where the listener is armed, and why not in `register()`.** `register(ctx)` runs in every Hermes
+process, so a socket opened there would open in the CLI and the gateway too. `dashboard/api.py` is
+imported only by `_mount_plugin_api_routes`, which makes it the one reliable marker for the process
+that owns 9119. It adds a `startup` handler to its own `APIRouter`.
+
+That mechanism has a trapdoor worth writing down. The dashboard builds its app as
+`FastAPI(..., lifespan=_lifespan)`, and a custom lifespan means the app router's `on_startup` list
+is never run — so the handlers `include_router` copies onto the app are inert. What actually runs
+is the *plugin router's own* `_DefaultLifespan`, which `include_router` merges into the app's
+lifespan context. `tests/test_api.py` pins that, because losing it would mean the listener silently
+never comes up with no error anywhere.
+
+Arming is also two steps rather than one. `app.state.bound_port` is set in `_on_server_started`,
+which runs *after* the `server.startup()` that fires the lifespan — so at handler time the port does
+not exist yet. The handler schedules a task that waits for it. Reading the real port rather than
+assuming 9119 matters because `--port 0` is a supported bind.
+
+**Certificate.** Self-signed P-256, ten years, generated once into
+`%LOCALAPPDATA%\hermes\remote\listener-cert.pem` and kept. The SAN names **only** loopback
+(`localhost`, `127.0.0.1`, `::1`) — a LAN address there would rotate the fingerprint with the DHCP
+lease and unpair every phone on renewal. The phone does no hostname verification, so it costs
+nothing. Regeneration happens only when the files are absent, unparseable or expired.
+
+**The QR encoder is a port, and it was verified against a decoder rather than by reading.** Every
+subtle part of `qr.ts` fails silently — the symbol still draws and only a phone camera finds out —
+so `hr_qr` was checked by rendering four payloads (versions 1, 4, 13, 20) to bitmaps and decoding
+them with OpenCV's `QRCodeDetector`; all four round-tripped exactly. The data codeword stream was
+separately checked against the `qrcode` package. Neither is in the Hermes venv, so `tests/test_qr.py`
+carries digests of the verified symbols instead. `segno` disagrees on one thing — it emits an extra
+`0x00` codeword after the terminator — and `qrcode` and the spec's worked example both side with
+this encoder. It is padding, so all three decode identically.
+
+**The pairing code carries the device token itself, unlike PawlRemote.** There the QR was a
+short-lived offer redeemed over the network, because it was drawn in an editor panel anyone walking
+past could photograph. Here pairing happens at a terminal a person is already sitting at, and a
+redemption round trip would mean an unauthenticated route on a listener whose whole point is that
+it has none. The accepted cost: the code on screen *is* the credential until the device is revoked,
+and a screenshot of it stays valid. `hermes remote pair` says so on the same screen.
+
+**Verified by running.** `hermes remote status` against the real install, through the real junction
+and the real `plugins.enabled` entry, prints the expected report — so `register_cli_command` and the
+argparse tree work end to end with no `main.py` change. Separately, a listener was started on a
+throwaway `HERMES_HOME` in front of a stand-in upstream and driven over a real TLS socket
+(TLS 1.3): the served leaf DER matched the on-disk certificate byte for byte (which is exactly what
+the phone pins), an anonymous request got 401, a paired device's request reached the upstream with
+`Host` rewritten to loopback and its query string intact, a WebSocket upgrade arrived carrying the
+injected credential and echoed frames both ways, and revoking the device took effect on the next
+request with no restart.
+
+**Not yet proven.** The listener coming up inside a real `hermes dashboard` process. Every part of
+that path is tested in isolation — the lifespan merge, the deferred port wait, the proxy, the
+certificate — but the assembled run has not happened, and it wants a decision first: the listener
+binds `0.0.0.0` by default, which is the first LAN bind for the hermes venv `python.exe` and
+raises the Windows Firewall prompt §5.3 predicted. `HERMES_REMOTE_HOST=127.0.0.1` avoids the prompt
+and proves everything except reachability from the phone.

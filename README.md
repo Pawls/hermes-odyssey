@@ -30,6 +30,9 @@ in that list.
 | path | what |
 | --- | --- |
 | `plugin/` | the Hermes plugin: device auth provider, API router, pairing CLI, TLS listener |
+| `plugin/hr_identity.py` | the self-signed P-256 certificate the phone pins |
+| `plugin/hr_listener.py` | the TLS reverse proxy in front of loopback 9119 |
+| `plugin/hr_cli.py`, `hr_qr.py`, `hr_pairing.py` | `hermes remote`, its QR encoder, and the payload |
 | `plugin/dashboard/` | what the dashboard imports: `manifest.json` + `api.py` |
 | `tests/` | run with the Hermes venv; see below |
 | `docs/PLAN.md` | the plan, the protocol findings, the risks |
@@ -72,8 +75,46 @@ Two corollaries specific to Hermes, both load-bearing:
   token seam authenticates any registered provider's token on a registered route, so every
   route here checks *which* provider vouched for the caller before it does anything.
 
+## Pairing a phone
+
+```
+hermes remote pair --label "Pixel 9"
+hermes remote status
+hermes remote revoke <id>
+```
+
+`pair` draws a QR in the terminal and prints the certificate fingerprint underneath it. Compare
+that fingerprint with the one the phone shows, because rule 3 above is the only rule a machine in
+the middle does not survive.
+
+The code in the QR **is** the credential, and unlike PawlRemote it is not a short-lived offer: it
+stays valid until the device is revoked. Clear the screen once the phone has it, and treat a
+screenshot of it as a password.
+
+## The listener
+
+It starts and stops with `hermes dashboard`, binds every interface on port 9443, and reverse
+proxies loopback 9119 including the WebSocket upgrade. The dashboard itself stays on 127.0.0.1.
+
+| variable | default | what |
+| --- | --- | --- |
+| `HERMES_REMOTE_PORT` | `9443` | TLS port |
+| `HERMES_REMOTE_HOST` | `0.0.0.0` | bind address |
+| `HERMES_REMOTE_LISTENER` | on | set to `0` / `off` to load the plugin without opening a socket |
+
+The listener authenticates every request and every upgrade against the device store before
+forwarding anything. That is not defence in depth, it is the only defence: on a loopback bind the
+dashboard trusts its peer, and a proxy is a loopback peer. There is no unauthenticated route, not
+even a liveness one — the TLS handshake already tells a phone which machine answered.
+
+The first LAN bind will raise a Windows Firewall prompt for the hermes venv `python.exe`. Private
+networks only.
+
 ## Status
 
-Phase 1, first slice: the plugin loads, the device store works, and the router is mounted and
-bearer-gated end to end. Still to come in Phase 1: the TLS listener and the `hermes remote`
-pairing CLI. See `docs/PLAN.md` §5.6.
+Phase 1 is code-complete: the plugin loads, the device store works, the router is mounted and
+bearer-gated, the TLS listener proxies HTTP and WebSocket traffic, and `hermes remote` pairs,
+reports and revokes. 116 tests pass.
+
+Not yet proven: the listener coming up inside a real `hermes dashboard` run. Every part of that
+path is tested on its own; the assembled run has not happened. See `docs/PLAN.md` §5.7.

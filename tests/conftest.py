@@ -24,18 +24,25 @@ PLUGIN_DIR = REPO_ROOT / "plugin"
 
 @pytest.fixture(scope="session", autouse=True)
 def _isolated_hermes_home(tmp_path_factory):
-    """Point HERMES_HOME at a tmp root so no test can touch the real device store."""
+    """Point HERMES_HOME at a tmp root so no test can touch the real device store.
+
+    The listener kill switch goes with it. ``hr_listener.schedule_start`` already refuses to run
+    without a dashboard in the process, so this is belt and braces — but the thing it is guarding
+    against is a test opening a socket on the LAN, which is worth two guards.
+    """
     import os
 
     home = tmp_path_factory.mktemp("hermes-home")
     (home / "config.yaml").write_text("", encoding="utf-8")
-    previous = os.environ.get("HERMES_HOME")
+    previous = {name: os.environ.get(name) for name in ("HERMES_HOME", "HERMES_REMOTE_LISTENER")}
     os.environ["HERMES_HOME"] = str(home)
+    os.environ["HERMES_REMOTE_LISTENER"] = "0"
     yield home
-    if previous is None:
-        os.environ.pop("HERMES_HOME", None)
-    else:
-        os.environ["HERMES_HOME"] = previous
+    for name, value in previous.items():
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
 
 
 @pytest.fixture(scope="session", autouse=True)

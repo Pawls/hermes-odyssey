@@ -126,6 +126,63 @@ def test_gated_mode_mints_a_single_use_ticket(api, client, paired, monkeypatch):
         ws_tickets.consume_ticket(ticket)
 
 
+# ---- the listener's lifetime -------------------------------------------------
+
+
+def test_the_routers_startup_hook_survives_a_host_app_with_its_own_lifespan(api):
+    """This is how the TLS listener starts, and the mechanism is not obvious.
+
+    The dashboard builds its app as ``FastAPI(..., lifespan=_lifespan)``. A custom lifespan means
+    the app router's own ``on_startup`` list is never run — so the handlers ``include_router``
+    copies onto the app are inert. What does run is the plugin router's *own* lifespan context,
+    which ``include_router`` merges into the app's. Take that merge away and the listener silently
+    never comes up, with no error anywhere.
+    """
+    from contextlib import asynccontextmanager
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    ran = []
+
+    @asynccontextmanager
+    async def host_lifespan(_app):
+        ran.append("host-start")
+        yield
+        ran.append("host-stop")
+
+    app = FastAPI(lifespan=host_lifespan)
+    app.include_router(api.router, prefix=PREFIX)
+    app.router.on_startup.clear()  # what a custom lifespan effectively does to them
+    app.router.on_shutdown.clear()
+
+    with TestClient(app):
+        pass
+
+    assert ran == ["host-start", "host-stop"]
+    assert api.router.on_startup and api.router.on_shutdown
+
+
+def test_mounting_the_router_does_not_open_a_socket(api, monkeypatch):
+    """A plugin router can be mounted by anything. Only a process that has the dashboard in it
+    has something to proxy, and only that process may bind a LAN port."""
+    import sys
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    monkeypatch.delenv(api.hr_listener.ENV_ENABLED, raising=False)
+    monkeypatch.delitem(sys.modules, "hermes_cli.web_server", raising=False)
+
+    app = FastAPI()
+    app.include_router(api.router, prefix=PREFIX)
+    with TestClient(app):
+        pass
+
+    assert api.hr_listener._task is None
+    assert api.hr_listener.state.running is False
+
+
 def test_responses_carry_only_their_declared_fields(client, paired):
     """Pinning the schema is what stops the session token being added to a response later.
 

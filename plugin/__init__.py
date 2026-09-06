@@ -7,6 +7,14 @@ Registered here:
 2. This plugin's own API paths as token routes, so the phone's bearer clears the dashboard's
    gate instead of being bounced to ``/login`` (gated mode) or 401'd for want of a session
    token (loopback mode).
+3. ``hermes remote pair | status | revoke`` (:mod:`hr_cli`), which is where a person mints a
+   device token and reads the certificate fingerprint off a QR code.
+
+The fourth piece, the TLS listener, is **not** registered here, and the omission is deliberate.
+``register`` runs in every Hermes process, so opening a socket from it would open one in the CLI
+and in the gateway too. The listener is armed from ``dashboard/api.py`` instead — that file is
+imported only by the dashboard's plugin mounter, which makes it the one reliable marker for the
+process that owns port 9119.
 
 The routes themselves live in ``dashboard/manifest.json`` + ``dashboard/api.py``, which the
 dashboard imports separately — a plugin router is mounted at ``/api/plugins/hermes-remote`` only
@@ -45,6 +53,23 @@ def _register_token_routes() -> None:
         register_token_route(path)
 
 
+def _register_cli(ctx) -> None:
+    """Wire ``hermes remote pair|status|revoke``.
+
+    ``hr_cli`` is imported here rather than at module scope so plugin load does not pay for it in
+    the gateway and dashboard processes, which never run a CLI command.
+    """
+    from . import hr_cli
+
+    ctx.register_cli_command(
+        name=hr_cli.COMMAND_NAME,
+        help=hr_cli.COMMAND_HELP,
+        description=hr_cli.COMMAND_DESCRIPTION,
+        setup_fn=hr_cli.setup,
+        handler_fn=hr_cli.handler,
+    )
+
+
 def register(ctx) -> None:
     """Plugin entry point."""
     global LAST_SKIP_REASON
@@ -63,6 +88,12 @@ def register(ctx) -> None:
         LAST_SKIP_REASON = f"token route registration failed: {exc}"
         logger.warning("%s: %s", _TAG, LAST_SKIP_REASON)
         return
+
+    try:
+        _register_cli(ctx)
+    except Exception as exc:  # noqa: BLE001 — the dashboard half still works without the CLI
+        LAST_SKIP_REASON = f"CLI registration failed: {exc}"
+        logger.warning("%s: %s", _TAG, LAST_SKIP_REASON)
 
     logger.info(
         "%s: registered device auth provider and %d token route(s): %s",

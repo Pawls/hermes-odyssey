@@ -59,11 +59,35 @@ def _sibling(module_name: str) -> ModuleType:
 
 
 hr_devices = _sibling("hr_devices")
+hr_listener = _sibling("hr_listener")
 hr_provider = _sibling("hr_provider")
 hr_routes = _sibling("hr_routes")
 hr_wsauth = _sibling("hr_wsauth")
 
 router = APIRouter()
+
+
+# ---- the TLS listener's lifetime ------------------------------------------
+#
+# This file is imported by ``_mount_plugin_api_routes`` and nowhere else, which makes it the one
+# reliable marker that we are inside the process that owns port 9119 — ``register(ctx)`` runs in
+# every Hermes process, so it is the wrong place to open a socket. The handlers below ride the
+# router's own lifespan: ``include_router`` merges it into the app's, so they run even though the
+# dashboard passes a custom ``lifespan=`` that ignores the app router's own event handlers.
+
+
+def _start_listener() -> None:
+    """Arm the listener. Not ``async``: the real work waits for a port that is not bound yet, so
+    it is a task, and blocking the dashboard's startup on it would deadlock."""
+    hr_listener.schedule_start()
+
+
+async def _stop_listener() -> None:
+    await hr_listener.stop()
+
+
+router.add_event_handler("startup", _start_listener)
+router.add_event_handler("shutdown", _stop_listener)
 
 _UNAUTHORIZED = HTTPException(status_code=401, detail="Unauthorized")
 
