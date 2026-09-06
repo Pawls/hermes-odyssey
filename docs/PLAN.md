@@ -50,6 +50,12 @@ From `tui_gateway/AGENTS.md`, methods in `tui_gateway/methods_*.py`:
 | Slash commands | `slash.exec` -> `command.dispatch` |
 | Handshake | `gateway.ready` (carries skin data) |
 
+**Only the left half of each cell is a method.** Everything that flows the other way —
+`message.delta`, every `tool.*`, `approval.request`, `gateway.ready` — is a notification whose
+method is the literal string `event`, with the name above sitting in `params.type`
+(`tui_gateway/server.py::_event_frame`). Read as a list of method names this table is a bug; see
+§5.9.
+
 **Multi-session is already in the protocol.** `session.list` and `session.resume` exist
 today, so the "other users later" requirement costs nothing now and would cost a
 navigation rewrite later. Build the session list as a real list in the first commit.
@@ -434,9 +440,76 @@ the phone pins), an anonymous request got 401, a paired device's request reached
 injected credential and echoed frames both ways, and revoking the device took effect on the next
 request with no restart.
 
-**Not yet proven.** The listener coming up inside a real `hermes dashboard` process. Every part of
+**Not yet proven** (settled the same day, §5.8). The listener coming up inside a real
+`hermes dashboard` process. Every part of
 that path is tested in isolation — the lifespan merge, the deferred port wait, the proxy, the
 certificate — but the assembled run has not happened, and it wants a decision first: the listener
 binds `0.0.0.0` by default, which is the first LAN bind for the hermes venv `python.exe` and
 raises the Windows Firewall prompt §5.3 predicted. `HERMES_REMOTE_HOST=127.0.0.1` avoids the prompt
 and proves everything except reachability from the phone.
+
+### 5.8 Phase 1 log — the assembled run, 2026-09-06
+
+Phase 1 is proven end to end. `HERMES_REMOTE_HOST=127.0.0.1 hermes dashboard --skip-build
+--no-open` came up (`HERMES_DASHBOARD_READY port=9119`) and `hermes remote status` in a second
+shell reported the listener live in that process:
+
+```
+Listener     listening on 127.0.0.1:9443
+             proxying to 127.0.0.1:9119, pid 21840
+```
+
+So the whole arming path holds in a real dashboard: the plugin loads from `plugins.enabled`
+through the junction, `dashboard/api.py` is imported by `_mount_plugin_api_routes`, the plugin
+router's own `_DefaultLifespan` survives the app's custom lifespan, and the deferred wait for
+`app.state.bound_port` resolves. That last one is the part no unit test can prove.
+
+An anonymous `GET https://127.0.0.1:9443/` over TLS returned `401 {"detail": "unauthorized"}`,
+which is the gate in force inside the real process rather than in a harness.
+
+Still unproven, and only these: the `0.0.0.0` bind, the Windows Firewall prompt it raises, and
+reachability from the phone.
+
+### 5.9 Phase 2 log — the shared module and the frame codec, 2026-09-06
+
+`AndroidStudioProjects\HermesRemote\` now exists: the PawlRemote Gradle skeleton forked to
+`rootProject.name = "HermesRemote"`, one `:shared` module in package `dev.pawl.hermes`, an
+`android` target and a `jvm` target that exists only so the protocol runs under
+`gradlew :shared:jvmTest` on Windows with no device. No iOS target, same reason as before. No
+`:androidApp` yet; that is Phase 3. 14 codec tests pass.
+
+Reading the gateway to write the codec turned up four things, and two of them contradict §1.1.
+
+**Agent events are not methods.** Every server-to-client event is a notification whose method is
+the literal string `event`; the name lives in `params.type`, alongside `session_id`, an optional
+`seq` and an optional `payload` (`server.py::_event_frame`). A client that dispatches on `method`
+sees one event type and drops the protocol. §1.1 is corrected in place.
+
+**The WebSocket has no newline delimiter.** The docstring says "newline-delimited JSON-RPC both
+ways", and over stdio it literally is, but `WSTransport.write` sends one `json.dumps` per
+`send_text` with no terminator, and the read loop is `json.loads(raw.strip())` on each frame
+received (`ws.py`). Two frames joined by a newline in one message are therefore one parse error
+and both are lost. `HermesCodec.encode` emits exactly one frame per message; the trailing newline
+it writes is for the stdio wire and is free here because of that `strip()`. Decoding still splits
+on newlines, because the specified wire allows it and JSON escapes every newline inside a string.
+
+**Replay is real, and §3 can stop hedging about it.** `_stamp_event` gives every session-routed
+event a per-session monotonic `seq` and files it in a ring of 512 events across at most 64
+sessions, oldest session evicted. `session.events.since {session_id, last_seen}` returns
+`{events, latest_seq, truncated, count, epoch}`, where `events` are bare event `params` objects
+and **not** JSON-RPC envelopes. `truncated` means the gap fell out of the ring and the client must
+refetch history rather than trust the replay. `gateway.ready` carries `replay_epoch`; the seq
+counters are in-process, so an epoch that differs from the stored one means the backend restarted
+and every watermark must reset to zero. That is the whole reconnect design, already specified.
+
+**Session-less events carry no seq**, because `_stamp_event` only numbers what it can route —
+`gateway.ready` and `skin.changed` among them. A watermark cannot be seeded from the handshake.
+
+Also worth having: `gateway.ping` is answered by the WS read loop itself, ahead of `dispatch`,
+and clients are expected to send it about every 15 seconds — it is what keeps the gateway's
+scale-to-zero predicate from treating an idle phone as an absent one.
+
+**One PawlRemote file does not port.** `Discovery.kt` races candidate addresses with
+`PawlClient.hello()`, and this listener deliberately has no unauthenticated route (§5.7). Racing
+has to be done with the TLS handshake plus an authenticated request instead, which is a design
+change rather than a rename, so it waits for the connection slice.

@@ -112,9 +112,15 @@ networks only.
 
 ## Status
 
-Phase 1 is code-complete: the plugin loads, the device store works, the router is mounted and
+Phase 1 is done: the plugin loads, the device store works, the router is mounted and
 bearer-gated, the TLS listener proxies HTTP and WebSocket traffic, and `hermes remote` pairs,
-reports and revokes. 116 tests pass.
+reports and revokes. 116 tests pass, and the listener has now been seen coming up inside a real
+`hermes dashboard` run and refusing an anonymous request over TLS (`docs/PLAN.md` §5.8).
 
-Not yet proven: the listener coming up inside a real `hermes dashboard` run. Every part of that
-path is tested on its own; the assembled run has not happened. See `docs/PLAN.md` §5.7.
+Not yet proven: the `0.0.0.0` bind, the firewall prompt it raises, and reachability from the
+phone.
+
+Phase 2 has started in `%USERPROFILE%\AndroidStudioProjects\HermesRemote`: the shared Kotlin
+module and the frame codec. What reading the gateway settled about the wire — events are not
+methods, the WebSocket has no newline delimiter, and reconnect replay is already specified — is
+in `docs/PLAN.md` §5.9.
