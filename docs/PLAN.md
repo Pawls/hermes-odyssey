@@ -168,6 +168,13 @@ laptop; being able to answer `approval.request` from another room is not.
 
 ### Phase 4 — the deferrals
 
+- **Close a revoked device's live socket** (§5.11). Ahead of push, because it is a hole rather
+  than a missing feature: the listener checks the device store on the upgrade and not on the
+  frames after it, so `hermes remote revoke` does not end a session that is already open, and the
+  heartbeat keeps it open indefinitely. `hr_listener.py` should hold the device id alongside each
+  proxied socket and close the ones whose record has gone.
+- **Allow the listener through the firewall** (§5.11). Inbound is currently *blocked* for the
+  interpreter that owns the socket, so no real phone can reach it whatever the bind says.
 - **Push.** An approval you only see when the app is foregrounded is not an approval.
   FCM, or a foreground service holding the socket. PawlRemote deferred this too and it is
   the first thing worth adding once the app works.
@@ -253,7 +260,9 @@ That last bullet is a Phase 1 design constraint that was not visible from readin
 - LAN address `192.168.1.50`.
 - The hermes venv `python.exe` has **no inbound firewall allow rule** (only the Electron
   `hermes.exe` does), so the first LAN bind raises a Windows Firewall prompt. Private
-  networks only.
+  networks only. **Corrected in §5.11:** the prompt fired and was answered *no*, so the rules
+  now present are inbound **Block**, and they name the runtime interpreter
+  (`.hermes-runtime\python\...`) rather than the venv one.
 
 ### 5.4 Read-only findings, 2026-09-06
 
@@ -440,6 +449,11 @@ the phone pins), an anonymous request got 401, a paired device's request reached
 injected credential and echoed frames both ways, and revoking the device took effect on the next
 request with no restart.
 
+**That last clause is only true of requests, and §5.11 is where it bites.** A WebSocket already open
+when the revocation lands keeps going: the listener authenticates the upgrade, not the frames after
+it. A revoked phone was seen still live and still reading a session, and the heartbeat means the
+socket never closes on its own. Fixing that is the first Phase 4 item.
+
 **Not yet proven** (settled the same day, §5.8). The listener coming up inside a real
 `hermes dashboard` process. Every part of
 that path is tested in isolation — the lifespan merge, the deferred port wait, the proxy, the
@@ -568,3 +582,68 @@ assumed to carry `session_id`.
 
 **Phase 3's six screens are approved** — Pair, Chat, Activity, Approvals, Sessions, Settings, as
 published to the design canvas. The app slice builds those.
+
+### 5.11 Phase 3 log — the app, and the assembled run over the LAN, 2026-09-06
+
+Phase 3 is done and proven against a real `hermes dashboard`. `:androidApp` exists, the six approved
+screens are built on `HermesConnection`'s `StateFlow`, and an emulator paired over the LAN address,
+listed the real session store, resumed a session, rendered its stored history, survived the desktop
+restarting under it, and refused itself after `hermes remote revoke`. 63 shared tests pass under
+`gradlew :shared:jvmTest --offline`.
+
+**What reading `methods_session.py` corrected about §5.10.** That log said `session.resume`'s result
+"is assumed to carry `session_id`". It does — and it also carries `messages`, the whole stored
+conversation as `_history_to_messages` projects it. That is the difference between a Chat screen
+that opens on the conversation and one that opens on an empty pane, and it changes the reconnect
+design rather than decorating it: history and the replay ring describe the same past, so folding
+both prints every recent turn twice. `resume` therefore seeds from history and adopts `latest_seq`
+as the watermark without folding the ring at all, and only a *reconnect* replays.
+
+**The case that would have been a silent bug.** Seeding cannot key on "is the transcript empty".
+`session.resume` mints a **runtime** id; the replay ring and `_stamp_event` are keyed on that id,
+not on the stored key. When the session is still live, `_resume_reuse_live` hands back the same
+runtime id and the watermark is valid — that is the reconnect replay was designed for. When it is
+not, resume builds a new session: empty ring, numbering back at one, and a watermark of 40 carried
+over from the old id would make the reducer's `seq <= seq` guard drop **every live event** under it.
+So the reseed condition is "blank transcript **or** a runtime id that changed", and the stored key
+is kept beside the runtime one because that is what the Sessions screen highlights on and what the
+next `session.resume` is asked for.
+
+**A frame the app was sending wrong, found by reading rather than by running.** `approval.respond`
+begins with `_sess(params, rid)` (`methods_prompt.py`), so it needs `session_id`. §5.10's version
+sent only `request_id` and `choice`; that answers 4001 and leaves the approval pending with the
+agent still blocked on it. Nothing in the unit tests could have caught it — the scripted socket
+answers whatever it is asked.
+
+**The 0.0.0.0 bind is proven, and the firewall is not.** Dialling `https://192.168.1.50:9443` from
+this machine gets TLS 1.3, a leaf DER byte-identical to `listener-cert.pem`, and
+`401 {"detail": "unauthorized"}` with no bearer. But `Get-NetFirewallApplicationFilter` shows two
+inbound **Block** rules on the Private profile for the listener's interpreter, which are the rules
+Windows writes when the §5.3 prompt is dismissed — so the prompt fired at some point and was
+answered no. Same-machine traffic to a local interface does not traverse that filter, and neither
+does the emulator's user-mode NAT, which originates on the host. **Reachability from a real phone
+therefore remains unproven, and is currently blocked.** Also: the program in those rules is
+`.hermes-runtime\python\...\cpython-3.11.15\python.exe`, not the venv interpreter §5.3 named, so a
+rule written against the venv would be the wrong rule.
+
+**A revocation bypass, and it is the desktop half's to fix.** §5.7 said revoking "took effect on the
+next request with no restart". True for HTTP. It is not true of a WebSocket that is already open:
+the listener authenticates the *upgrade*, and frames after it are proxied without another store
+lookup. A revoked phone was observed still Live and still reading a session, and the 15-second
+heartbeat means that socket never closes on its own. Access ended only when the listener process
+did. The fix belongs in `hr_listener.py` — hold the device id with each proxied socket and close the
+ones whose record has been revoked — and it is the first Phase 4 item, ahead of push.
+
+**What the assembled run showed, in order.** Pairing by deep link (the emulator has no camera worth
+aiming at a terminal, and `hermes-remote://pair?…` reaches `PairScreen` by the route a scan does);
+the fingerprint on screen matching the terminal group for group; `session.list` returning the real
+store across `tui` and `cli` sources; `session.resume` on a two-day-old session rendering its stored
+history with tool rows; the desktop killed and restarted underneath, the app going `Not found` with
+the transcript intact and back to `Live` on its own with a new replay epoch; and revocation landing
+as `Pair again` on the next attempt.
+
+**Not proven, and each for a reason.** `prompt.submit` and `approval.respond` are wired and unit
+tested but were not fired at the real gateway: both start or unblock work in Paul's own live
+sessions, which is not a side effect to cause while testing. A physical phone on the Wi-Fi, for the
+firewall reason above. And the Approvals screen was seen only in its empty state, because nothing
+was pending.

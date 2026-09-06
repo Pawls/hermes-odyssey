@@ -117,10 +117,19 @@ bearer-gated, the TLS listener proxies HTTP and WebSocket traffic, and `hermes r
 reports and revokes. 116 tests pass, and the listener has now been seen coming up inside a real
 `hermes dashboard` run and refusing an anonymous request over TLS (`docs/PLAN.md` §5.8).
 
-Not yet proven: the `0.0.0.0` bind, the firewall prompt it raises, and reachability from the
-phone.
+Phases 2 and 3 are done in `%USERPROFILE%\AndroidStudioProjects\HermesRemote`: the shared Kotlin
+protocol, and an Android app on top of it. An emulator has paired over the LAN address, listed the
+real session store, resumed a session and rendered its history, survived the desktop restarting
+underneath it, and refused itself after `hermes remote revoke`. See `docs/PLAN.md` §5.9–§5.11.
 
-Phase 2 has started in `%USERPROFILE%\AndroidStudioProjects\HermesRemote`: the shared Kotlin
-module and the frame codec. What reading the gateway settled about the wire — events are not
-methods, the WebSocket has no newline delimiter, and reconnect replay is already specified — is
-in `docs/PLAN.md` §5.9.
+The `0.0.0.0` bind is proven: `https://192.168.1.50:9443` answers with TLS 1.3, the exact leaf the
+phone pins, and `401` with no bearer.
+
+Two things are not, and both are named at the top of `docs/PLAN.md` Phase 4:
+
+- **Inbound is firewall-blocked.** The Windows prompt §5.3 predicted was answered *no*, so there
+  are inbound `Block` rules for the listener's interpreter on the Private profile. Nothing on the
+  Wi-Fi can reach the listener until those are replaced with an allow.
+- **Revocation does not close a live socket.** The listener authenticates the WebSocket upgrade and
+  not the frames after it, so `hermes remote revoke` ends a device's *requests* immediately and
+  leaves an open session running until the socket drops — which the phone's heartbeat prevents.
