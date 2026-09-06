@@ -309,3 +309,62 @@ survives unchanged and is still the security boundary.
   falsifying.
 - Whether `include_router` on a plugin router accepts a `@router.websocket` route in this
   FastAPI version. Expected yes; unproven here.
+
+### 5.6 Phase 1 log — the first slice, 2026-09-06
+
+The plugin now loads. `plugins.enabled` gained `hermes-remote`, the junction is in place, and
+`plugin/` holds the device store, the auth provider and the API router. The TLS listener and the
+pairing CLI are the remaining Phase 1 items.
+
+**Verified by running, against the real install** (`discover_plugins()` then the dashboard's own
+`_mount_plugin_api_routes()`, then a `TestClient` over the whole middleware chain):
+
+- The plugin imports as `hermes_plugins.hermes_remote` — the slug `_directory_module_name`
+  derives from the manifest key, which matters because `dashboard/api.py` finds its siblings by
+  that prefix.
+- `register(ctx)` registers `hermes-remote-device` as the sole token provider and marks both
+  routes token-authable.
+- `include_router` mounts them at `/api/plugins/hermes-remote/`.
+- A request with no bearer, an unknown bearer, or a revoked device's bearer gets 401 from the
+  token seam. A paired device gets 200. An unreadable store gets 503, never 401.
+
+38 tests pass under the Hermes venv interpreter.
+
+**§5.4's conclusion about the auth provider was wrong, and the plan is the bug.** It said the
+`DashboardAuthProvider` on the token seam "stops being the load-bearing piece" now that the
+plugin owns a router. The opposite is true: a plugin router is mounted *inside* the dashboard's
+FastAPI app, so it sits behind the same gates as every other `/api/` path — the cookie gate in
+gated mode, the session-token gate on loopback. `register_token_route` plus a registered provider
+is the only way a phone's bearer clears either one. Both pieces are required; neither is optional.
+
+**A trap the seam sets.** `token_auth_middleware` authenticates a registered route against *every*
+registered provider. If a drain secret is ever configured on this machine, that bearer would clear
+the gate on HermesRemote's routes too. So each route re-checks `token_principal.provider` against
+its own name before doing anything. That check is not belt-and-braces; without it the routes are
+reachable by a credential that has nothing to do with a phone.
+
+**The WS credential is mode-dependent and only one branch is safe to hand out.** In gated mode
+`POST /ws-ticket` mints a real 30-second single-use ticket, the same shape the browser SPA gets.
+On a loopback bind the only credential `_ws_auth_reason` accepts is `_SESSION_TOKEN`, which is a
+process-lifetime master key for the whole dashboard; it cannot cross the network. So the route
+answers `ticket: null` there and the TLS listener attaches the credential itself when it proxies
+the upgrade. The phone's client code is the same either way: open `/api/ws`, append `?ticket=`
+only when it was given one.
+
+**Why this makes the listener simpler than §3 assumed.** Proxying from loopback means the
+dashboard sees a loopback peer, which is exactly what `_ws_client_reason` demands in ungated mode,
+and the listener controls the `Host` header so `_ws_host_origin_reason` is satisfied by
+construction. The dashboard can stay bound to 127.0.0.1 and the listener becomes the whole
+security boundary — which is what §4.2 wanted anyway.
+
+**Device tokens.** `hr1.<device_id>.<secret>`, with only `sha256(salt || secret)` on disk under
+`%LOCALAPPDATA%\hermes\remote\devices.json`. The id addresses one record, so verification is a
+lookup rather than a scan. SHA-256 rather than scrypt is deliberate: the secret is 256 bits of
+`secrets.token_bytes` and there is no dictionary to make expensive, while a slow hash on a
+per-request path would be a self-inflicted denial of service. Revocation keeps the record.
+
+**Still unproven from §5.5.** The `basic` provider on a non-loopback bind and the firewall prompt
+are now moot — the listener replaces that bind, and it is the same `python.exe` either way, so the
+prompt just moves. `include_router` accepting a `@router.websocket` route is still untested; the
+router mounted here carries HTTP routes only. Falsifying the §5.4 prediction that a phone in
+`/chat` sees nothing while the gateway streams remains worth one cheap run.
