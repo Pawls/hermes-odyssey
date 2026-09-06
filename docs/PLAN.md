@@ -513,3 +513,58 @@ scale-to-zero predicate from treating an idle phone as an absent one.
 `PawlClient.hello()`, and this listener deliberately has no unauthenticated route (§5.7). Racing
 has to be done with the TLS handshake plus an authenticated request instead, which is a design
 change rather than a rename, so it waits for the connection slice.
+
+### 5.10 Phase 2 log — the pinned client and the connection, 2026-09-06
+
+The shared module now connects. `jvmShared` holds the ported pinning actual, and `commonMain` gained
+`Socket.kt` (the platform seam), `Client.kt` (the plugin's two routes) and `Connection.kt` (the
+loop). 50 tests pass under `gradlew :shared:jvmTest --offline`.
+
+**The pin ported unchanged; the transport around it did not.** `PinnedTrustManager` and
+`base64UrlToHex` are PawlRemote's, verbatim apart from the message text — the digest is still the
+whole leaf DER, hostname verification is still off, and there is still no fallback to the system
+store. What changed is that one `OkHttpClient` now carries both surfaces. Ktor's `WebSockets` plugin
+is deliberately absent: its artifact is not in the Gradle cache, so depending on it would break the
+`--offline` rule the README states, and it would only re-frame text that `HermesCodec` already
+frames. OkHttp's own WebSocket is what Ktor's engine would have called anyway.
+
+**Discovery is sequential, not raced, and §5.9 predicted the shape correctly.** With no
+unauthenticated route, a probe costs a TLS handshake plus a bearer check against `/health`, so the
+client walks the candidate list with a one-second timeout and `lastGoodHost` first. A refused bearer
+throws instead of moving to the next address: every candidate would refuse the same token, so
+walking the rest only spends the user's time before telling them to pair again.
+
+**A 401 is the one failure that must not be retried**, and it now has two arrival paths that both
+have to be caught — the `/health` probe, and the WebSocket upgrade, where OkHttp reports it as an
+`onFailure` carrying a response rather than as a status code.
+
+**The heartbeat is not decoration.** `ws.py` answers `gateway.ping` in the read loop ahead of
+`dispatch`, and the separate gateway's scale-to-zero predicate reads a marker file that the WS
+handler touches — so a client that stops pinging gets its backend shut down underneath it. Because
+the reply skips `dispatch`, a slow agent turn cannot delay it, which is what makes a *missing* reply
+worth acting on: ten seconds of silence closes the socket and the loop reconnects.
+
+**The reconnect order is load-bearing and is written down in `replay()`.** Epoch first, because a
+restarted backend renumbers from one and an old watermark would swallow the whole replay; then
+`truncated`, because the transcript must be marked stale *before* a partial replay lands on it; then
+the events, through the same reducer path a live event takes. The reducer's own `seq <= seq` guard
+is what makes an overlapping window safe to ask for. The epoch is checked twice, at `gateway.ready`
+and again on the `session.events.since` result — not redundant, because the backend can restart
+between the two.
+
+**A design constraint found by the tests, worth stating because it is not obvious.** A Ktor call
+runs on the engine's own dispatcher, so a connection loop that made one directly cannot be driven by
+a virtual clock — the first version advanced time past a request that had not moved, and every test
+sat in `Searching`. `Transport` therefore owns the two HTTP routes as well as the socket: everything
+the loop awaits goes through one interface, and so everything the loop awaits is scriptable. The
+Ktor half is tested separately, on a real dispatcher, in `ClientTest`.
+
+**Not built in this slice**, and each for a reason rather than an oversight: the pairing-URI parser
+(`Desktop` is modelled, the scan that fills it is the app's), the Keystore-backed `DesktopStore`
+(the interface is here, the Android actual belongs with the app), and any live run against a real
+gateway. Everything above is unit-tested against a scripted socket and unproven against the real
+one; `session.resume` in particular is modelled on reading `methods_session.py` and its result is
+assumed to carry `session_id`.
+
+**Phase 3's six screens are approved** — Pair, Chat, Activity, Approvals, Sessions, Settings, as
+published to the design canvas. The app slice builds those.
