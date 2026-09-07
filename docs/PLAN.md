@@ -682,9 +682,16 @@ interpreter lives under `generation-1785721812-23864-f0965244`. A `hermes update
 generation directory stops matching it, and the symptom is a phone that simply cannot connect. The
 README says to check the rule's `Program` first when that happens.
 
-**Still owed, and it needs hands.** A physical phone on the Wi-Fi. Every run to date has originated
-on this host — a local interface, or the emulator's user-mode NAT — and neither traverses the
-filter, so the firewall change is verified as configuration and not yet as reachability. The
-one-minute version needs no APK: open `https://192.168.1.50:9443/` in the phone's browser, accept
-the certificate warning, and read `{"detail":"unauthorized"}`. A 401 from the phone is the proof;
-a timeout means the rule is not matching.
+**A physical phone has now reached it.** Paul's phone, on the Wi-Fi and with no app installed,
+opened `https://192.168.1.50:9443/` and got `{"detail": "unauthorized"}`. That is three things at
+once: the packet crossed the Windows filter from a genuinely remote host, TLS completed against the
+self-signed leaf, and the bearer gate answered a request carrying no credential. Every run before
+this one originated on this host — a local interface, or the emulator's user-mode NAT — and neither
+traverses the filter, so this is the first evidence the allow rule matches anything. Phase 1's
+"there is no unauthenticated route" also stops being a claim about the code at this point.
+
+**Pin the address, because the QR bakes it in.** `192.168.1.50` was a 24-hour DHCP lease, not a
+reservation, and `hr_pairing.build` writes the host list into the code the phone stores. A lease
+that moved would strand every paired phone with no visible cause. It is now a fixed allocation on
+the gateway at the same address, so nothing else had to change. This is the cheap version of the
+mDNS item further down: mDNS makes a moved desktop findable, a reservation makes it not move.

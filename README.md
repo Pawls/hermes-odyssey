@@ -155,5 +155,12 @@ against a real dashboard, an idle authenticated WebSocket was closed with 1008 f
 `hermes remote revoke`. And the two inbound `Block` rules are gone, replaced by the scoped allow
 above, so nothing on this machine blocks inbound 9443 any more.
 
-What remains unproven is the same thing it has always been: a **physical** phone. Every run so far
-originated on this host, where traffic to a local interface never traverses the firewall at all.
+A **physical** phone has now reached it. On the Wi-Fi, with no app installed, its browser opened
+`https://192.168.1.50:9443/` and got `{"detail": "unauthorized"}` — the filter crossed, TLS
+completed, and the bearer gate answering a request with no credential. Every earlier run originated
+on this host, where traffic to a local interface never traverses the firewall at all, so this is
+the first proof the allow rule matches anything.
+
+One thing to keep pinned. The pairing code carries the desktop's address, so give this machine a
+DHCP **reservation** rather than a lease. A lease that moves strands every paired phone with no
+visible cause, and re-pairing is the only cure until the mDNS item in Phase 4 lands.
