@@ -168,13 +168,9 @@ laptop; being able to answer `approval.request` from another room is not.
 
 ### Phase 4 — the deferrals
 
-- **Close a revoked device's live socket** (§5.11). Ahead of push, because it is a hole rather
-  than a missing feature: the listener checks the device store on the upgrade and not on the
-  frames after it, so `hermes remote revoke` does not end a session that is already open, and the
-  heartbeat keeps it open indefinitely. `hr_listener.py` should hold the device id alongside each
-  proxied socket and close the ones whose record has gone.
-- **Allow the listener through the firewall** (§5.11). Inbound is currently *blocked* for the
-  interpreter that owns the socket, so no real phone can reach it whatever the bind says.
+- ~~**Close a revoked device's live socket**~~ — done, §5.12.
+- ~~**Allow the listener through the firewall**~~ — done, §5.12. What is left of it is one thing a
+  physical phone has to confirm, since every run so far originated on this host.
 - **Push.** An approval you only see when the app is foregrounded is not an approval.
   FCM, or a foreground service holding the socket. PawlRemote deferred this too and it is
   the first thing worth adding once the app works.
@@ -647,3 +643,48 @@ tested but were not fired at the real gateway: both start or unblock work in Pau
 sessions, which is not a side effect to cause while testing. A physical phone on the Wi-Fi, for the
 firewall reason above. And the Approvals screen was seen only in its empty state, because nothing
 was pending.
+
+### 5.12 Both Phase 4 blockers, closed — 2026-09-06
+
+**Revocation now closes a live socket, and the store is the only channel it could have used.**
+`hermes remote revoke` runs in the plain CLI, a different process from the dashboard, so there is
+no in-process signal for the listener to hook — the device store file is the whole interface
+between them. `hr_listener.py` therefore holds the device id beside each proxied socket in `_live`
+and sweeps every five seconds: one store read answers for every attached phone, and a socket is
+raced against its own `revoked` event rather than polled inside a pump, because the socket
+revocation has to reach is precisely the one that wakes no pump for minutes at a time.
+
+Two decisions in that sweep are worth keeping:
+
+- **An unreadable store closes nothing.** It is the thing that says which devices are live, and a
+  disk error that answered "none" would drop every session on the machine. Same shape as
+  `_authenticate` answering 503 rather than 401, and for the same reason.
+- **The close code is 1008, not 1000.** It says policy rather than network fault. The app needs no
+  code for it — it reconnects, `findHost` gets 401, and `rejected()` lands on pairing by the route
+  that was already there — but a close code that lies about why is a log that lies later.
+
+Proven against a real `hermes dashboard --skip-build --no-open` with `HERMES_REMOTE_HOST=0.0.0.0`,
+not only in tests: a paired device opened `wss://192.168.1.50:9443/api/ws`, took `gateway.ready`,
+sat idle for three seconds — the exact state the bug lived in — and was **closed with 1008 5.1
+seconds after `hermes remote revoke` returned**. Three tests cover the sweep, and the suite is 119.
+
+`hermes remote revoke` also said the wrong thing ("stops working on the next request"), which was
+the old behaviour described accurately. It now says the open session closes too.
+
+**The firewall.** The two inbound `Block` rules are gone and a scoped allow replaces them:
+`Program` the runtime interpreter, `Protocol TCP`, `LocalPort 9443`, `Profile Private`. That is
+narrower than the rule the Windows prompt writes, which allows the whole interpreter on every
+inbound port. The machine now has **zero** enabled inbound Block rules, so nothing can win over it
+— Windows resolves Block before Allow, and one stray rule would have made this silently useless.
+
+The cost of the narrow rule is that Windows matches `Program` by exact path, and the runtime
+interpreter lives under `generation-1785721812-23864-f0965244`. A `hermes update` that mints a new
+generation directory stops matching it, and the symptom is a phone that simply cannot connect. The
+README says to check the rule's `Program` first when that happens.
+
+**Still owed, and it needs hands.** A physical phone on the Wi-Fi. Every run to date has originated
+on this host — a local interface, or the emulator's user-mode NAT — and neither traverses the
+filter, so the firewall change is verified as configuration and not yet as reachability. The
+one-minute version needs no APK: open `https://192.168.1.50:9443/` in the phone's browser, accept
+the certificate warning, and read `{"detail":"unauthorized"}`. A 401 from the phone is the proof;
+a timeout means the rule is not matching.

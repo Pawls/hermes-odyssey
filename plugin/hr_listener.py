@@ -17,6 +17,11 @@ alike, and a request without a live paired device's bearer never reaches 9119 at
 own routes are additionally gated by the dashboard's token seam; every other path is gated only
 here.
 
+A WebSocket needs one thing more, because the bearer is on the upgrade and the frames after it
+carry nothing: :func:`_sweep_revoked` re-reads the device store every few seconds and closes the
+sockets whose device has gone. Without it ``hermes remote revoke`` ended a device's *requests* and
+left its open session running, which a phone's heartbeat then kept alive indefinitely.
+
 The bearer *is* forwarded upstream, because ``/api/plugins/hermes-remote/…`` needs it to clear that
 second gate. The dashboard session token travels the other way and only in loopback mode: it is
 attached to the WebSocket upgrade query by :func:`hr_wsauth.listener_upgrade_query`, server side,
@@ -130,6 +135,12 @@ _DROP_WS_HEADERS = frozenset(
 #: by the proxy when the server behind it would have accepted the frame.
 _WS_MAX_BYTES = 64 * 1024 * 1024
 
+#: How often a live socket's device is re-checked against the store. ``hermes remote revoke`` runs
+#: in a *different process* — the plain CLI — so there is no in-process signal to hook and the file
+#: is the only channel. Five seconds is the delay between revoking and the phone dropping; it is
+#: bounded work no matter how many phones are attached, because one read answers for all of them.
+_REVOCATION_SWEEP_SECONDS = 5.0
+
 
 # ---- configuration ---------------------------------------------------------
 
@@ -183,6 +194,70 @@ class ListenerState:
 state = ListenerState()
 _server: Any = None
 _task: Optional[asyncio.Task] = None
+
+
+# ---- live sockets ----------------------------------------------------------
+
+
+@dataclass
+class _LiveSocket:
+    """One proxied WebSocket, and the device whose bearer opened it.
+
+    Authenticating the upgrade is not enough on its own: the frames after it carry no bearer, and
+    a phone's heartbeat keeps the socket open indefinitely, so a revoked device would go on reading
+    a session until the listener process itself stopped. Holding the device id beside the socket is
+    what lets :func:`_sweep_revoked` end it.
+    """
+
+    device_id: str
+    revoked: asyncio.Event
+
+
+_live: Dict[int, _LiveSocket] = {}
+_live_seq = 0
+_sweeper: Optional[asyncio.Task] = None
+
+
+def _register_live(device_id: str) -> Tuple[int, _LiveSocket]:
+    global _live_seq
+    _live_seq += 1
+    handle = _LiveSocket(device_id=device_id, revoked=asyncio.Event())
+    _live[_live_seq] = handle
+    return _live_seq, handle
+
+
+def _sweep_revoked() -> None:
+    """Signal every live socket whose device is no longer paired.
+
+    An unreadable store is a reason to do *nothing*: it says which devices are live, and a disk
+    error that answered "none" would close every session on the machine. Same reasoning as
+    :func:`_authenticate` answering 503 rather than 401.
+    """
+    if not _live:
+        return
+    try:
+        paired = {d.id for d in hr_devices.list_devices() if not d.revoked}
+    except hr_devices.DeviceStoreUnavailable as exc:
+        _log.warning("hermes-remote listener: revocation sweep skipped: %s", exc)
+        return
+    for handle in list(_live.values()):
+        if handle.device_id not in paired and not handle.revoked.is_set():
+            _log.info(
+                "hermes-remote listener: closing live socket for revoked device %s",
+                handle.device_id[:8],
+            )
+            handle.revoked.set()
+
+
+async def _sweep_loop() -> None:
+    while True:
+        await asyncio.sleep(_REVOCATION_SWEEP_SECONDS)
+        try:
+            _sweep_revoked()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — a failed sweep must not stop the listener serving
+            _log.debug("hermes-remote listener: revocation sweep failed: %s", exc)
 
 
 def _write_runtime() -> None:
@@ -445,7 +520,7 @@ class ReverseProxy:
         if message["type"] != "websocket.connect":
             return
         try:
-            _authenticate(scope)
+            device = _authenticate(scope)
         except _Rejected as rejected:
             # Refusing before accepting produces an HTTP status on the handshake, which is what a
             # client can actually read; a close code after accept looks like a server fault.
@@ -512,7 +587,15 @@ class ReverseProxy:
                 else:
                     await send({"type": "websocket.send", "text": frame})
 
-        pumps = [asyncio.create_task(phone_to_dashboard()), asyncio.create_task(dashboard_to_phone())]
+        key, live = _register_live(device.id)
+        pumps = [
+            asyncio.create_task(phone_to_dashboard()),
+            asyncio.create_task(dashboard_to_phone()),
+            # Racing the pumps rather than polling inside them: a socket that is only receiving
+            # heartbeats is exactly the one revocation has to reach, and it wakes no pump for
+            # minutes at a time.
+            asyncio.create_task(live.revoked.wait()),
+        ]
         try:
             done, pending = await asyncio.wait(pumps, return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
@@ -523,10 +606,14 @@ class ReverseProxy:
                 if exc is not None and not isinstance(exc, ConnectionClosed):
                     _log.debug("hermes-remote listener: WS pump ended: %s", exc)
         finally:
+            _live.pop(key, None)
             await upstream.close()
+            # 1008 tells the phone this was policy and not a network fault, which is the difference
+            # between showing "Pair again" and retrying a reconnect that can only be refused.
+            code = 1008 if live.revoked.is_set() else 1000
             # The phone may already be gone when the last close goes out; that is not an error.
             with contextlib.suppress(RuntimeError, OSError):
-                await send({"type": "websocket.close", "code": 1000})
+                await send({"type": "websocket.close", "code": code})
 
 
 async def _send_error(send, rejected: _Rejected) -> None:
@@ -557,7 +644,7 @@ async def start(upstream_port: int) -> None:
     ``uvicorn.Server.serve()`` is deliberately not used — it installs signal handlers, and stealing
     SIGINT from the dashboard would break Ctrl-C. ``startup()`` alone is already serving.
     """
-    global _server
+    global _server, _sweeper
     if state.running:
         return
     if not enabled():
@@ -599,6 +686,7 @@ async def start(upstream_port: int) -> None:
         return
 
     _server = server
+    _sweeper = asyncio.create_task(_sweep_loop())
     state.running = True
     state.host = host
     state.port = port
@@ -617,10 +705,13 @@ async def start(upstream_port: int) -> None:
 
 async def stop() -> None:
     """Close the socket and drop the runtime record. Safe to call when nothing is running."""
-    global _server, _task
+    global _server, _task, _sweeper
     if _task is not None and not _task.done():
         _task.cancel()
     _task = None
+    if _sweeper is not None:
+        _sweeper.cancel()
+        _sweeper = None
     if _server is not None:
         _server.should_exit = True
         try:

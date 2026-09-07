@@ -488,6 +488,71 @@ def test_the_upstreams_subprotocol_is_what_reaches_the_phone(hr_listener, paired
     assert _drive(hr_listener, scenario) == "hermes-gateway-v1"
 
 
+# ---- revocation reaching a socket that is already open ---------------------
+
+
+def test_revoking_a_device_closes_the_socket_it_already_had(
+    hr_listener, hr_devices, store_path, paired, monkeypatch
+):
+    """The hole this closes: the bearer is only on the upgrade, and the phone's heartbeat keeps
+    the socket open for as long as the listener lives, so an upgrade-only check let a revoked
+    device go on reading a session indefinitely."""
+    import hr_wsauth
+
+    monkeypatch.setattr(hr_wsauth, "listener_upgrade_query", dict)
+
+    async def scenario(pair):
+        from websockets.asyncio.client import connect
+        from websockets.exceptions import ConnectionClosed
+
+        async with connect(_ws_url(pair), additional_headers=_auth(paired), proxy=None) as socket:
+            await socket.recv()  # the upstream's opening report; the socket is live
+            assert len(hr_listener._live) == 1
+            hr_devices.revoke_device(paired.split(".")[1], store_path)
+            hr_listener._sweep_revoked()
+            try:
+                await asyncio.wait_for(socket.recv(), timeout=5)
+            except ConnectionClosed as exc:
+                return exc.rcvd.code
+            return None
+
+    # 1008 rather than 1000: the phone shows "Pair again" instead of retrying a reconnect that can
+    # only ever be refused.
+    assert _drive(hr_listener, scenario) == 1008
+    assert not hr_listener._live
+
+
+def test_an_unreadable_store_does_not_close_anything(hr_listener, store_path, paired, monkeypatch):
+    """The store says which devices are live. A disk error that answered "none" would close every
+    session on the machine — the same reason :func:`_authenticate` answers 503 and not 401."""
+    import hr_wsauth
+
+    monkeypatch.setattr(hr_wsauth, "listener_upgrade_query", dict)
+
+    async def scenario(pair):
+        from websockets.asyncio.client import connect
+
+        async with connect(_ws_url(pair), additional_headers=_auth(paired), proxy=None) as socket:
+            await socket.recv()
+            store_path.write_text("{ truncated", encoding="utf-8")
+            hr_listener._sweep_revoked()
+            await socket.send("still here")
+            return await socket.recv()
+
+    assert _drive(hr_listener, scenario) == "echo:still here"
+
+
+def test_a_sweep_with_nothing_open_reads_no_store(hr_listener, monkeypatch):
+    """The common case is no phone attached, and it must not cost a file read every five seconds."""
+    import hr_devices as devices
+
+    def boom(*args, **kwargs):
+        raise AssertionError("the store was read with no live socket")
+
+    monkeypatch.setattr(devices, "list_devices", boom)
+    hr_listener._sweep_revoked()
+
+
 # ---- configuration ---------------------------------------------------------
 
 

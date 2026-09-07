@@ -281,6 +281,7 @@ def _revoke(args) -> int:
     if device_id is None:
         return _err(f"No single live device matches {args.device!r}. See `hermes remote status`.")
     if hr_devices.revoke_device(device_id):
-        _out(f"Revoked {device_id}. Its token stops working on the next request.")
+        _out(f"Revoked {device_id}. Its token stops working now, and a session it has open closes")
+        _out("within a few seconds.")
         return 0
     return _err(f"{device_id} was already revoked.")

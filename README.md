@@ -107,8 +107,33 @@ forwarding anything. That is not defence in depth, it is the only defence: on a 
 dashboard trusts its peer, and a proxy is a loopback peer. There is no unauthenticated route, not
 even a liveness one — the TLS handshake already tells a phone which machine answered.
 
-The first LAN bind will raise a Windows Firewall prompt for the hermes venv `python.exe`. Private
-networks only.
+An open WebSocket is checked too, and separately, because its bearer was only ever on the upgrade.
+The listener holds the device id beside each proxied socket and re-reads the device store every
+five seconds, closing with 1008 any socket whose device has been revoked. `hermes remote revoke`
+therefore ends a live session rather than only the next request. The store is the channel because
+the CLI runs in its own process; an unreadable store closes nothing, since a disk error that
+answered "no devices are paired" would drop every session on the machine.
+
+### Getting through the Windows firewall
+
+The first LAN bind raises a Windows Firewall prompt. Answering it *no* writes two inbound `Block`
+rules that suppress the prompt for good, and the program they name is the Hermes **runtime**
+interpreter — `.hermes-runtime\python\generation-…\cpython-3.11.15-…\python.exe` — not the venv
+one. A rule written against the venv `python.exe` is the wrong rule.
+
+This is what is installed here instead of answering the prompt, and it is narrower than what the
+prompt would have created, which allows the whole interpreter on every inbound port:
+
+```powershell
+New-NetFirewallRule -Name 'HermesRemoteListener' `
+    -DisplayName 'Hermes Remote listener (TLS 9443)' `
+    -Direction Inbound -Action Allow -Enabled True -Profile Private `
+    -Protocol TCP -LocalPort 9443 -Program '<the runtime python.exe>'
+```
+
+Elevation required, and Windows resolves the program by exact path, so `hermes update` moving to a
+new `generation-…` directory will silently stop matching. If the phone stops connecting after an
+update, check this rule's `Program` first.
 
 ## Status
 
@@ -125,11 +150,10 @@ underneath it, and refused itself after `hermes remote revoke`. See `docs/PLAN.m
 The `0.0.0.0` bind is proven: `https://192.168.1.50:9443` answers with TLS 1.3, the exact leaf the
 phone pins, and `401` with no bearer.
 
-Two things are not, and both are named at the top of `docs/PLAN.md` Phase 4:
+Both Phase 4 blockers are now closed (`docs/PLAN.md` §5.12). Revocation ends a live socket:
+against a real dashboard, an idle authenticated WebSocket was closed with 1008 five seconds after
+`hermes remote revoke`. And the two inbound `Block` rules are gone, replaced by the scoped allow
+above, so nothing on this machine blocks inbound 9443 any more.
 
-- **Inbound is firewall-blocked.** The Windows prompt §5.3 predicted was answered *no*, so there
-  are inbound `Block` rules for the listener's interpreter on the Private profile. Nothing on the
-  Wi-Fi can reach the listener until those are replaced with an allow.
-- **Revocation does not close a live socket.** The listener authenticates the WebSocket upgrade and
-  not the frames after it, so `hermes remote revoke` ends a device's *requests* immediately and
-  leaves an open session running until the socket drops — which the phone's heartbeat prevents.
+What remains unproven is the same thing it has always been: a **physical** phone. Every run so far
+originated on this host, where traffic to a local interface never traverses the firewall at all.
