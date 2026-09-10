@@ -79,6 +79,18 @@ been fired at a live gateway, against a scratch session nothing else holds.
 Kill: if the 4090 error `data` carries no owner fields, parse the message; if that is brittle, show it
 verbatim and stop.
 
+Status 2026-09-10: shipped as HermesRemote fb664cd, installed on the phone. The 4090 `data` carries
+`reason: SESSION_NOT_OWNED` and nothing else, so the message stays verbatim and the reason gates the
+owned branch. The real send was fired from a script over the phone's exact path (pair, health,
+ws-ticket, /api/ws): `session.create`, then `prompt.submit` answered `{"status": "streaming"}`,
+`message.start` and `message.complete` followed. The turn's text was the inference server refusing
+the model, which is the desktop's state. Scratch device revoked and session deleted afterwards.
+Observed while doing it: 9443 was proxying to pid 27388, which is the desktop app's
+`hermes serve --host 127.0.0.1 --port 0`, so the scratch session was created inside the desktop
+app's process - the V3 host case is already what happens today. Also `hermes remote status` prints
+"listening on 127.0.0.1:9443" while netstat shows the bind on 0.0.0.0; the status line reports the
+wrong host and V3 should fix it in passing.
+
 ### V3 — The listener follows the surface Paul is looking at · Fable 5.1 / high
 
 Replaces the former "standalone serving mode". The host for 9443 must be the process whose window
