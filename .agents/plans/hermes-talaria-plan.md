@@ -93,23 +93,56 @@ wrong host and V3 should fix it in passing.
 
 ### V3 — The listener follows the surface Paul is looking at · Fable 5.1 / high
 
-Replaces the former "standalone serving mode". The host for 9443 must be the process whose window
-Paul is watching, because that is the only process a phone turn can stream into.
+The host for 9443 must be the process whose window Paul is watching, because that is the only
+process a phone turn can stream into. Two processes arm the listener: `hermes dashboard` and the
+desktop app's headless `hermes serve --port 0`. The desktop outranks the dashboard.
 
-- Desktop app open: its `hermes serve` is the host. Prove that a phone `session.resume` of the session
-  the desktop has open takes `_resume_reuse_live`, and that a phone `prompt.submit` streams into the
-  desktop window. This is expected from reading `session_transports.py` and is unproven by a run.
-- Two candidate hosts: a deterministic rule instead of a bind race. Proposal: the desktop wins, and a
-  `hermes dashboard` that finds 9443 taken by a live hermes-remote host says so at startup rather than
-  logging `state.error` and going quiet. `hermes remote status` reports which process is hosting.
-- No window open: the always-on gateway hosts, so the phone can start a session from nothing. This is
-  the old V3 and keeps its kill criterion: if `handle_ws` cannot be driven from the bare-ASGI listener
-  without pulling the dashboard's app state in, host a minimal Starlette app instead. Keep arming
-  explicit so no socket opens in the plain CLI (`plugin/__init__.py:14`).
+Mechanism (`hr_listener.py`): the holder records `surface` in `remote/listener.json`; a candidate
+that outranks a live holder writes `remote/listener-claim.json` and retries the bind every 3 s; the
+holder's tick sees the claim and releases the port; the claimant binds on its next retry; the
+phone's reconnect lands it in the new host. A record from a dead pid holds nothing. A record with no
+`surface` (a pre-upgrade listener) is never displaced. `hermes remote status` names the bind host,
+the hosting surface and pid, and a pending handover.
 
-Verify: three runs, one per bullet, each ending in a phone message visible in the surface named.
+Status 2026-09-10: shipped. Proven twice against real processes, in an isolated `HERMES_HOME` on
+port 9444 so the live host was untouched:
 
-### V4 — TUI as a viewer of the shared process · Fable 5.1 / high
+- Same-process live sharing (bullet one): client A created a session, client B resumed the stored
+  key and got A's runtime id back (`_resume_reuse_live`), B submitted, and A received every event of
+  B's turn through `message.complete`. This is the desktop-window case with the window played by a
+  second WebSocket client.
+- Handover (bullet two): dashboard hosting at 17:32:00; a `HERMES_SERVE_HEADLESS=1 hermes serve`
+  started at 17:32:32, claimed, the dashboard yielded at 17:32:33, the serve bound at 17:32:35, the
+  dashboard settled into waiting at 17:32:36. Killing the serve: the dashboard re-hosted within 9 s.
+- Found on the way: uvicorn's `startup()` raises `SystemExit` on a failed bind rather than setting
+  `should_exit`, so the old "could not bind" branch never ran. Caught now.
+- The live desktop backend (pid 27388) still runs the pre-upgrade listener, so status shows it as
+  "unknown surface" until the desktop app restarts. The rule treats it as a holder to wait behind.
+
+Ten new tests (`tests/test_host_rule.py`), suite at 129. What is not proven: a real phone crossing a
+handover, which needs the desktop app restarted with the new plugin and Paul's thumb.
+
+### V4 — Host when no window is open · Fable 5.1 / high
+
+The old V3's third bullet, on its own because it is the one with real unknowns. With neither the
+desktop app nor a dashboard running, nothing holds 9443 and the phone cannot start a session.
+`hermes gateway run` is always on here (pid 35976) but serves no HTTP at all, so the listener would
+have to terminate `/api/ws` itself inside the gateway process: build a `starlette.websockets.WebSocket`
+from the bare ASGI scope and hand it to `tui_gateway.ws.handle_ws`, which needs only `accept`,
+`receive_text`, `send_text` and `close` on it. `server.dispatch` runs in any process that imports
+`tui_gateway.server` (the desktop's serve proves no `main()` is needed).
+
+Unknowns to read first: whether `tui_gateway.server` can be imported inside the messaging gateway
+process without its module-level threads and stdio transport colliding with the gateway's own loop;
+how the plugin knows it is in the gateway process, since `register(ctx)` runs everywhere and arming
+must stay explicit (`plugin/__init__.py:14`); and where the gateway's event loop can be joined from.
+Rank: `gateway` is already the lowest surface in the host rule, so it yields to either window.
+
+Kill: if `handle_ws` cannot be driven from the bare-ASGI listener without pulling the dashboard's
+app state in, host a minimal Starlette app instead. If the gateway process cannot import
+`tui_gateway.server` cleanly, stop and consider a separate always-on `hermes serve` instead.
+
+### V5 — TUI as a viewer of the shared process · Fable 5.1 / high
 
 `hermes remote attach [--resume <id>]` launches `hermes --tui` with `HERMES_TUI_GATEWAY_URL` pointing at
 the hosting process's `/api/ws`, so the terminal becomes a second transport on the same live session
@@ -120,18 +153,18 @@ Kill: if Ink's attach mode cannot resume a named session without the unserved `/
 handshake, implement that route in the plugin instead of the launcher, and reconsider whether upstream
 should own it.
 
-### V5 — mDNS discovery · Opus 5 / medium
+### V6 — mDNS discovery · Opus 5 / medium
 
 Replace the address baked into the pairing payload by `hr_pairing.build`, so the QR survives a moved
 DHCP lease. The reservation on the gateway is the cheap version and stays until this lands.
 
-### V6 — Rename to hermes-talaria · Opus 5 / medium
+### V7 — Rename to hermes-talaria · Opus 5 / medium
 
 Across `plugin.yaml`, `dashboard/manifest.json`, `hr_routes.PLUGIN_NAME`, `plugins.enabled`, the
 Android package, and the pairing URI scheme. Ship a migration note: an existing paired phone must pair
-again. After V1–V5 so the rename lands once.
+again. After V1–V6 so the rename lands once.
 
-### V7 — Distribution · Opus 5 / medium
+### V8 — Distribution · Opus 5 / medium
 
 Firewall setup emitted as a command by `hermes remote pair` rather than living in the README, plus the
 macOS and Linux equivalents. Then catalog packaging so `hermes plugins install` works, and an APK
@@ -143,4 +176,4 @@ story for the phone half.
   clears. Kept as a small part of V2 because the 4001 path is real, just not what happened.
 - **Fan-out through `/api/pub` for a read-only live view across processes.** Still possible, but it
   only ever shows a turn; it cannot let the phone send into a session another process owns. Same-process
-  attachment (V3, V4) gives both, using mechanisms Hermes already has.
+  attachment (V3, V5) gives both, using mechanisms Hermes already has.

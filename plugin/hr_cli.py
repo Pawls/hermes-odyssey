@@ -184,13 +184,15 @@ def _pair(args) -> int:
 # ---- status ----------------------------------------------------------------
 
 
-def _probe(host: str, port: int, expected_der: bytes) -> str:
+def _probe(bind_host: str, port: int, expected_der: bytes) -> str:
     """One line about the listener's socket: reachable, and is it presenting our certificate.
 
     Connects to loopback rather than the LAN address because that is the leg that proves the
     process is up; whether the phone can reach it is a question about the network, not about
-    Hermes, and answering it from here would be a guess.
+    Hermes, and answering it from here would be a guess. The line names the *bind* host, since
+    "listening on 127.0.0.1" would be a lie about a socket bound to every interface.
     """
+    host = "127.0.0.1"
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.check_hostname = False  # the certificate is pinned, not validated — the phone too
     context.verify_mode = ssl.CERT_NONE
@@ -202,7 +204,23 @@ def _probe(host: str, port: int, expected_der: bytes) -> str:
         return f"not answering on {host}:{port} ({exc.__class__.__name__})"
     if served != expected_der:
         return f"answering on {host}:{port} with a DIFFERENT certificate — do not pair"
-    return f"listening on {host}:{port}"
+    return f"listening on {bind_host or host}:{port}"
+
+
+def _host_lines(runtime: dict) -> list:
+    """Who holds the port, and whether a better-ranked process is waiting for it."""
+    surface = runtime.get("surface") or "unknown surface"
+    lines = [
+        f"               hosted by {surface}, pid {runtime.get('pid')},"
+        f" proxying to 127.0.0.1:{runtime.get('upstream_port')}"
+    ]
+    claim = hr_listener.read_claim()
+    if claim and hr_listener.pid_alive(claim.get("pid")):
+        lines.append(
+            f"               handover pending: {claim.get('surface')} (pid {claim.get('pid')})"
+            " is waiting for the port"
+        )
+    return lines
 
 
 def _status(args) -> int:
@@ -224,8 +242,9 @@ def _status(args) -> int:
     elif identity is None:
         _out("  Listener     recorded as running, but there is no certificate on disk")
     else:
-        _out(f"  Listener     {_probe('127.0.0.1', int(runtime.get('port') or 0), identity.der)}")
-        _out(f"               proxying to 127.0.0.1:{runtime.get('upstream_port')}, pid {runtime.get('pid')}")
+        _out(f"  Listener     {_probe(str(runtime.get('host') or ''), int(runtime.get('port') or 0), identity.der)}")
+        for line in _host_lines(runtime):
+            _out(line)
     if not hr_listener.enabled():
         _out(f"               disabled by {hr_listener.ENV_ENABLED}")
 

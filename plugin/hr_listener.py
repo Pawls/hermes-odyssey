@@ -175,6 +175,115 @@ def runtime_path() -> Path:
     return hr_paths.state_dir() / RUNTIME_FILENAME
 
 
+def claim_path() -> Path:
+    return hr_paths.state_dir() / CLAIM_FILENAME
+
+
+# ---- which process hosts the port ------------------------------------------
+#
+# Every Hermes process that mounts the dashboard router arms this listener: ``hermes dashboard``
+# on 9119, and the desktop app's headless ``hermes serve --port 0`` (``web_server.py`` mounts plugin
+# routers unconditionally). Only one can bind 9443, and it matters which, because a phone can
+# stream into a live session only from inside the process that owns it (``session_transports.py``
+# fans events out across transports of one process and nothing crosses to another). So the host
+# must be the process whose window Paul is looking at. The desktop app outranks the dashboard; a
+# future always-on gateway host ranks below both. The rule is enforced with two files: the runtime
+# record says who holds the port, and a claim says a better candidate wants it. The holder yields
+# on the next sweep, the claimant binds on its next retry, and a phone's reconnect does the rest.
+
+SURFACE_DESKTOP = "desktop"
+SURFACE_DASHBOARD = "dashboard"
+SURFACE_GATEWAY = "gateway"
+_PRECEDENCE = {SURFACE_DESKTOP: 2, SURFACE_DASHBOARD: 1, SURFACE_GATEWAY: 0}
+
+#: Written by a candidate that outranks the current holder. Cleared once it has bound.
+CLAIM_FILENAME = "listener-claim.json"
+
+#: How often a candidate that is not hosting retries the bind, and how often a host checks for a
+#: claim. Also the upper bound on the handover a phone sees when the desktop app opens or closes.
+_HOST_RETRY_SECONDS = 3.0
+
+
+def this_surface() -> str:
+    """Which Hermes process this is, for the host rule.
+
+    The desktop's backend is the only one launched with ``HERMES_SERVE_HEADLESS=1``
+    (``hermes_cli/main.py::_dashboard_sanitize_desktop_env``); ``hermes dashboard`` imports the
+    web server without it; anything else is treated as the lowest rank.
+    """
+    if os.environ.get("HERMES_SERVE_HEADLESS", "").strip() == "1":
+        return SURFACE_DESKTOP
+    if "hermes_cli.web_server" in sys.modules:
+        return SURFACE_DASHBOARD
+    return SURFACE_GATEWAY
+
+
+def outranks(candidate: str, holder: str) -> bool:
+    """Whether ``candidate`` should host instead of ``holder``. Equal rank never displaces."""
+    return _PRECEDENCE.get(candidate, -1) > _PRECEDENCE.get(holder, -1)
+
+
+def pid_alive(pid: Any) -> bool:
+    """Whether ``pid`` names a running process. A record from a dead process is noise, not a holder."""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        # ``os.kill(pid, 0)`` is *not* a probe on Windows: it calls TerminateProcess.
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return False
+            return code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _live_record(record: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """``record`` if it was written by a process that is still running and is not this one."""
+    if not record or int(record.get("pid") or 0) == os.getpid() or not pid_alive(record.get("pid")):
+        return None
+    return record
+
+
+def host_decision(surface: str, holder: Optional[Dict[str, Any]]) -> str:
+    """What a candidate that is not hosting should do, given the live holder record (or None).
+
+    ``"bind"``: nobody live holds the port, try it. ``"claim"``: a lower-ranked process holds it,
+    write a claim and try anyway (it yields within a sweep). ``"wait"``: the holder ranks at least
+    as high, so leave it alone and retry later.
+    """
+    if holder is None:
+        return "bind"
+    if int(holder.get("port") or 0) != configured_port():
+        return "bind"  # it holds some other port; ours is not spoken for
+    holder_surface = str(holder.get("surface") or "")
+    if not holder_surface:
+        return "wait"  # a pre-upgrade listener never says what it is; do not displace what you cannot rank
+    return "claim" if outranks(surface, holder_surface) else "wait"
+
+
+def should_yield(surface: str, claim: Optional[Dict[str, Any]]) -> bool:
+    """Whether a host should release the port for the live claimant."""
+    return claim is not None and outranks(str(claim.get("surface") or ""), surface)
+
+
 # ---- state -----------------------------------------------------------------
 
 
@@ -270,6 +379,7 @@ def _write_runtime() -> None:
             json.dumps(
                 {
                     "pid": os.getpid(),
+                    "surface": this_surface(),
                     "host": state.host,
                     "port": state.port,
                     "upstream_port": state.upstream_port,
@@ -297,6 +407,37 @@ def read_runtime() -> Optional[Dict[str, Any]]:
     """What a listener last recorded, or ``None``. May be stale — probe the port to be sure."""
     try:
         return json.loads(runtime_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _write_claim() -> None:
+    try:
+        path = claim_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"pid": os.getpid(), "surface": this_surface(), "at": int(time.time())})
+            + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+    except OSError as exc:
+        _log.debug("hermes-remote: could not write %s: %s", CLAIM_FILENAME, exc)
+
+
+def _clear_claim(only_mine: bool = True) -> None:
+    try:
+        if only_mine and int((read_claim() or {}).get("pid") or 0) != os.getpid():
+            return
+        claim_path().unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def read_claim() -> Optional[Dict[str, Any]]:
+    """A candidate's request for the port, or ``None``. Check its pid before believing it."""
+    try:
+        return json.loads(claim_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
 
@@ -636,21 +777,23 @@ async def _send_error(send, rejected: _Rejected) -> None:
 # ---- running it ------------------------------------------------------------
 
 
-async def start(upstream_port: int) -> None:
-    """Bind the TLS socket and serve, on the caller's event loop.
+async def start(upstream_port: int, *, quiet: bool = False) -> bool:
+    """Bind the TLS socket and serve, on the caller's event loop. True once serving.
 
     Runs on the dashboard's own loop rather than a thread of its own: the loop is already there,
     a second one would need its own shutdown story, and everything this does is I/O bound.
     ``uvicorn.Server.serve()`` is deliberately not used — it installs signal handlers, and stealing
     SIGINT from the dashboard would break Ctrl-C. ``startup()`` alone is already serving.
+    ``quiet`` makes a failed bind a debug line: the host loop retries every few seconds while
+    another process holds the port, and that is expected, not an error.
     """
     global _server, _sweeper
     if state.running:
-        return
+        return True
     if not enabled():
         state.error = f"disabled by {ENV_ENABLED}"
         _log.info("hermes-remote listener: %s", state.error)
-        return
+        return False
 
     import uvicorn
 
@@ -679,11 +822,18 @@ async def start(upstream_port: int) -> None:
     if not config.loaded:
         config.load()
     server.lifespan = config.lifespan_class(config)
-    await server.startup()
-    if server.should_exit:  # bind failed; uvicorn has already logged why
+    # A failed bind is a ``SystemExit`` from inside uvicorn's ``startup()`` (it logs, shuts the
+    # lifespan down and calls ``sys.exit(1)``); older versions only set ``should_exit``. Neither
+    # may leave here, because this runs as a task on the dashboard's own loop.
+    bind_failed = False
+    try:
+        await server.startup()
+    except SystemExit:
+        bind_failed = True
+    if bind_failed or server.should_exit:  # uvicorn has already logged why
         state.error = f"could not bind {host}:{port}"
-        _log.error("hermes-remote listener: %s", state.error)
-        return
+        _log.log(logging.DEBUG if quiet else logging.ERROR, "hermes-remote listener: %s", state.error)
+        return False
 
     _server = server
     _sweeper = asyncio.create_task(_sweep_loop())
@@ -695,20 +845,19 @@ async def start(upstream_port: int) -> None:
     state.started_at = int(time.time())
     _write_runtime()
     _log.info(
-        "hermes-remote listener: https://%s:%d -> 127.0.0.1:%d (cert %s)",
+        "hermes-remote listener: https://%s:%d -> 127.0.0.1:%d as %s (cert %s)",
         host,
         port,
         upstream_port,
+        this_surface(),
         identity.fingerprint_hex[:16],
     )
+    return True
 
 
-async def stop() -> None:
-    """Close the socket and drop the runtime record. Safe to call when nothing is running."""
-    global _server, _task, _sweeper
-    if _task is not None and not _task.done():
-        _task.cancel()
-    _task = None
+async def _release() -> None:
+    """Close the socket and drop the runtime record, leaving the host loop to run on."""
+    global _server, _sweeper
     if _sweeper is not None:
         _sweeper.cancel()
         _sweeper = None
@@ -721,6 +870,63 @@ async def stop() -> None:
         _server = None
     state.running = False
     _clear_runtime()
+
+
+async def stop() -> None:
+    """Close the socket, drop the runtime record and the host loop. Safe when nothing is running."""
+    global _task
+    if _task is not None and not _task.done():
+        _task.cancel()
+    _task = None
+    await _release()
+    _clear_claim()
+
+
+async def host_tick(upstream_port: int) -> str:
+    """One step of the host rule; the word returned says what it did, for logs and tests.
+
+    Not hosting: ``wait`` behind a live holder that ranks at least as high, otherwise ``claim``
+    (a lower-ranked holder, told to yield) or ``bind`` — and either of those becomes ``bound``
+    when the bind succeeds. Hosting: ``yield`` when a live higher-ranked claimant wants the
+    port, else ``hold``.
+    """
+    surface = this_surface()
+    if state.running:
+        claim = _live_record(read_claim())
+        if should_yield(surface, claim):
+            await _release()
+            state.error = f"yielded {state.port or configured_port()} to {claim['surface']} (pid {claim['pid']})"
+            _log.info("hermes-remote listener: %s", state.error)
+            return "yield"
+        return "hold"
+    holder = _live_record(read_runtime())
+    decision = host_decision(surface, holder)
+    if decision == "wait":
+        state.error = f"hosted by {holder['surface']} (pid {holder['pid']})"
+        return decision
+    if decision == "claim":
+        _write_claim()
+    if await start(upstream_port, quiet=holder is not None):
+        _clear_claim()
+        return "bound"
+    return decision
+
+
+async def _host_loop(upstream_port: int) -> None:
+    """Keep :func:`host_tick` running for the life of the process, logging only transitions."""
+    last = ""
+    while True:
+        try:
+            outcome = await host_tick(upstream_port)
+            if outcome in {"wait", "claim", "bind"} and state.error and state.error != last:
+                _log.info("hermes-remote listener: %s; retrying every %.0fs", state.error, _HOST_RETRY_SECONDS)
+            last = state.error if outcome in {"wait", "claim", "bind"} else ""
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — one bad tick must not end the loop
+            state.error = f"{type(exc).__name__}: {exc}"
+            _log.exception("hermes-remote listener: host tick failed")
+        await asyncio.sleep(_HOST_RETRY_SECONDS)
 
 
 async def _wait_for_bound_port(timeout: float) -> Optional[int]:
@@ -749,7 +955,7 @@ async def _deferred_start() -> None:
             state.error = "dashboard never reported a bound port"
             _log.warning("hermes-remote listener: %s", state.error)
             return
-        await start(port)
+        await _host_loop(port)
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001 — a listener that cannot start must not stop the dashboard

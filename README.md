@@ -93,8 +93,22 @@ screenshot of it as a password.
 
 ## The listener
 
-It starts and stops with `hermes dashboard`, binds every interface on port 9443, and reverse
-proxies loopback 9119 including the WebSocket upgrade. The dashboard itself stays on 127.0.0.1.
+It starts and stops with the process that mounts the dashboard router, binds every interface on
+port 9443, and reverse proxies that process's loopback port including the WebSocket upgrade. The
+dashboard itself stays on 127.0.0.1.
+
+### Which process hosts it
+
+Two processes mount the dashboard router and therefore arm this listener: `hermes dashboard` on
+9119, and the desktop app's own headless `hermes serve --port 0`. Only one can hold 9443, and it
+has to be the one whose window you are looking at: a phone can stream into a live session only
+from inside the process that owns it, because Hermes fans events out across the transports of one
+process and allows one live owner per session across processes. So the desktop app outranks the
+dashboard. The holder records itself in `remote/listener.json`; a higher-ranked candidate writes
+`remote/listener-claim.json`, the holder yields on its next sweep, the claimant binds on its next
+retry, and the phone's reconnect lands it in the new host. Opening or closing the desktop app
+therefore moves the phone within a few seconds. `hermes remote status` says which process is
+hosting and, while a handover is pending, which one is waiting.
 
 | variable | default | what |
 | --- | --- | --- |
