@@ -169,10 +169,16 @@ re-hosted in 3 s. Scratch home, device and session deleted afterwards. `hermes r
 now says "serving in-process" for this host and calls out a record from a dead pid as stale
 instead of reporting it as hosting. Ten new tests (`tests/test_gateway_host.py`), suite at 139.
 
-Not done: the live always-on gateway (pid 19240, pidfile-named; a second `gateway run`, pid
-39992, is also alive from before `hermes update`) still runs the pre-V4 plugin and needs
-`hermes gateway restart` to host 9443. That restart is Paul's call, and the phone-in-hand test
-after it is the one thing unverified.
+Live 2026-09-15: `hermes gateway restart` left one gateway (launcher pid 27056, runtime child
+28616; the pre-update pair 39992/19240 was the same launcher-plus-child shape, not a stale
+duplicate). The child bound 0.0.0.0:9443 six seconds after start, `hermes remote status` says
+"hosted by gateway, pid 28616, serving in-process", and a scripted send over the phone's exact
+path against the live host (pair, health, ws-ticket, `/api/ws`, `session.create`,
+`prompt.submit`, `message.start` through `message.complete`) succeeded with no window open. The
+turn's text was LiteLLM unable to reach `qwen3.8-27b-vision`, which is the inference server's
+state. `session.delete` over the socket answered 4023 while the lease was live; `hermes sessions
+delete` removed it afterwards, and the scratch device was revoked. The phone-in-hand send is
+still Paul's to fire but nothing in the path is unexercised.
 
 ### V5 — TUI as a viewer of the shared process · Fable 5.1 / high
 
