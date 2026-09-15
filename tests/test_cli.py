@@ -196,6 +196,88 @@ def test_revoke_all_on_an_empty_store_is_not_an_error(run):
     assert "Nothing to revoke" in result.out
 
 
+# ---- attach ----------------------------------------------------------------
+
+
+@pytest.fixture()
+def hosted(hr_cli, state, monkeypatch):
+    """A live listener record for this very process, a certificate, and a launcher that records
+    the environment it was handed instead of starting Ink."""
+    import json
+    import os
+
+    hr_identity = importlib.import_module("hr_identity")
+    hr_identity.ensure_identity()
+    (state / "listener.json").write_text(
+        json.dumps({"host": "0.0.0.0", "pid": os.getpid(), "port": 9443, "surface": "gateway", "upstream_port": 0}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(hr_cli, "_probe", lambda host, port, der: f"listening on {host}:{port}")
+    launches = []
+
+    def launch(resume):
+        launches.append((resume, dict(os.environ)))
+        raise SystemExit(0)
+
+    monkeypatch.setattr(hr_cli, "LAUNCH", launch)
+    monkeypatch.delenv("HERMES_TUI_GATEWAY_URL", raising=False)
+    monkeypatch.delenv("NODE_EXTRA_CA_CERTS", raising=False)
+    return launches
+
+
+def test_attach_with_nothing_hosting_says_what_to_start(run):
+    result = run("attach")
+    assert result.code == 1
+    assert "hermes gateway start" in result.err
+
+
+def test_attach_hands_the_tui_a_socket_on_the_host_and_a_working_device(run, hosted, hr_devices):
+    from urllib.parse import parse_qs, urlsplit
+
+    hr_identity = importlib.import_module("hr_identity")
+    result = run("attach", "--resume", "20260915_104153_848744")
+    assert result.code == 0
+    assert len(hosted) == 1
+    resume, env = hosted[0]
+    assert resume == "20260915_104153_848744"
+
+    url = urlsplit(env["HERMES_TUI_GATEWAY_URL"])
+    assert (url.scheme, url.hostname, url.port, url.path) == ("wss", "127.0.0.1", 9443, "/api/ws")
+    token = parse_qs(url.query)["device"][0]
+    assert env["NODE_EXTRA_CA_CERTS"] == str(hr_identity.existing_identity().cert_path)
+    # The token was live while the TUI ran and is not printed anywhere a scrollback would keep it.
+    assert token not in result.out + result.err
+    devices = hr_devices.list_devices()
+    assert len(devices) == 1 and devices[0].label.startswith("terminal pid ")
+
+
+def test_attach_revokes_the_terminal_when_the_tui_exits(run, hosted, hr_devices):
+    from urllib.parse import parse_qs, urlsplit
+
+    run("attach")
+    token = parse_qs(urlsplit(hosted[0][1]["HERMES_TUI_GATEWAY_URL"]).query)["device"][0]
+    assert hr_devices.verify_token(token) is None
+    assert hr_devices.list_devices()[0].revoked
+
+
+def test_attach_reports_the_tuis_exit_code(run, hosted, hr_cli, monkeypatch):
+    def launch(resume):
+        raise SystemExit(130)
+
+    monkeypatch.setattr(hr_cli, "LAUNCH", launch)
+    assert run("attach").code == 130
+
+
+def test_attach_reaps_a_terminal_whose_process_died(run, hosted, hr_devices):
+    """A killed terminal never ran its revoke. Its record names a pid, so the next attach can."""
+    hr_devices.create_device(f"{importlib.import_module('hr_cli').TERMINAL_LABEL_PREFIX}999999999")
+    hr_devices.create_device("Pixel 9")
+    run("attach")
+    by_label = {d.label: d for d in hr_devices.list_devices()}
+    assert by_label["terminal pid 999999999"].revoked
+    assert not by_label["Pixel 9"].revoked
+
+
 # ---- the bare command ------------------------------------------------------
 
 

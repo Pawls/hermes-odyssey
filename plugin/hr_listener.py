@@ -26,6 +26,12 @@ The bearer *is* forwarded upstream, because ``/api/plugins/hermes-remote/…`` n
 second gate. The dashboard session token travels the other way and only in loopback mode: it is
 attached to the WebSocket upgrade query by :func:`hr_wsauth.listener_upgrade_query`, server side,
 and never appears in a response, a log or a QR code.
+
+One client cannot put a bearer on its upgrade: the Ink TUI in attach mode opens ``/api/ws`` with
+Node's own ``WebSocket``, which takes a URL and nothing else. ``hermes remote attach`` therefore
+pairs the terminal as a device of its own and carries that token in the upgrade query
+(:data:`WS_DEVICE_QUERY`), which :func:`_authenticate` accepts on WebSocket upgrades only and
+:meth:`ReverseProxy._upgrade_url` strips before the upstream sees the query.
 """
 
 from __future__ import annotations
@@ -67,6 +73,10 @@ ENV_ENABLED = "HERMES_REMOTE_LISTENER"
 #: Where a running listener records itself, so ``hermes remote status`` in another process can say
 #: something true. Removed on clean shutdown; a stale one is detected by probing the port.
 RUNTIME_FILENAME = "listener.json"
+
+#: Query parameter a WebSocket upgrade may carry a device token in, for the one client that cannot
+#: set a header (the attached TUI). Honoured on upgrades only; HTTP requests keep the bearer rule.
+WS_DEVICE_QUERY = "device"
 
 #: Rejected bearers tolerated in a window before the listener stops answering at all. This is a
 #: brute-force brake, not a firewall: the secret is 256 bits, so the real work is keeping a
@@ -484,6 +494,22 @@ def _bearer(headers: List[Tuple[bytes, bytes]]) -> str:
     return value.strip() if scheme.lower() == "bearer" else ""
 
 
+def _query_device(scope: Dict[str, Any]) -> str:
+    from urllib.parse import parse_qs
+
+    values = parse_qs(scope.get("query_string", b"").decode("latin-1")).get(WS_DEVICE_QUERY) or []
+    return values[0].strip() if len(values) == 1 else ""
+
+
+def _credential(scope: Dict[str, Any]) -> str:
+    """The device token this request presents: the bearer header, or on a WebSocket upgrade with
+    no bearer, the :data:`WS_DEVICE_QUERY` parameter. Never both, and never the query on HTTP."""
+    token = _bearer(scope.get("headers") or [])
+    if not token and scope.get("type") == "websocket":
+        token = _query_device(scope)
+    return token
+
+
 def _throttled() -> bool:
     now = time.monotonic()
     while state.failures and now - state.failures[0] > _FAILURE_WINDOW_SECONDS:
@@ -501,7 +527,7 @@ def _authenticate(scope: Dict[str, Any]):
     if _throttled():
         raise _Rejected(429, "too many failed attempts")
     try:
-        device = hr_devices.verify_token(_bearer(scope.get("headers") or []))
+        device = hr_devices.verify_token(_credential(scope))
     except hr_devices.DeviceStoreUnavailable as exc:
         _log.warning("hermes-remote listener: device store unavailable: %s", exc)
         raise _Rejected(503, "device store unavailable") from exc
@@ -663,6 +689,9 @@ class ReverseProxy:
             import hr_wsauth  # type: ignore[no-redef]
 
         params = parse_qsl(scope.get("query_string", b"").decode("latin-1"), keep_blank_values=True)
+        # The attached TUI's own credential, already checked by ``_authenticate``. It is this
+        # listener's secret, not the dashboard's, and a token seam upstream must never see it.
+        params = [(k, v) for k, v in params if k != WS_DEVICE_QUERY]
         injected = hr_wsauth.listener_upgrade_query()
         if injected:
             # The dashboard's session token, in loopback mode only. It replaces rather than joins

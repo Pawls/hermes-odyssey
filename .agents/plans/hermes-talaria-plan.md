@@ -191,6 +191,27 @@ Kill: if Ink's attach mode cannot resume a named session without the unserved `/
 handshake, implement that route in the plugin instead of the launcher, and reconsider whether upstream
 should own it.
 
+Status 2026-09-15: shipped. The auth question answered itself once the three hosts were lined up:
+neither a ticket nor the loopback token exists on the gateway host, and the desktop's token is
+known only inside its process, but the listener's device gate admits a socket on all three. So
+the terminal is paired as a device of its own (`terminal pid N`) for the TUI's lifetime and
+revoked on exit; a record left by a killed terminal is reaped on the next attach. Two things the
+TUI's transport forced: Node's `WebSocket` takes a URL and nothing else, so the token rides in
+the upgrade query (`hr_listener.WS_DEVICE_QUERY`, honoured on upgrades only, never on HTTP, and
+stripped by the proxy before the dashboard sees the query); and the certificate is self-signed,
+so the child gets it as `NODE_EXTRA_CA_CERTS`, which is enough because the SAN carries 127.0.0.1
+(measured: without it Node fails with `DEPTH_ZERO_SELF_SIGNED_CERT`, with it the same request is
+a 401). `_launch_tui` keeps an explicit `HERMES_TUI_GATEWAY_URL` rather than discovering one, so
+the launcher is Hermes' own and `/api/session-attach` was never needed; the kill did not fire.
+
+Proven against the live gateway host (pid 32248, after a restart to load the new listener): the
+real `_attach` paired a terminal device, and a Node script standing in for Ink opened the URL
+with the native `WebSocket`, received `gateway.ready`, created a session, submitted a prompt and
+saw `message.start` through `message.complete`; the device was revoked on exit and the scratch
+session deleted. Nine new tests, suite at 148. Not proven: Ink itself in a real terminal, which
+needs a TTY and is Paul's to run (`hermes remote attach`, then send from the phone into the
+session the TUI shows).
+
 ### V6 — mDNS discovery · Opus 5 / medium
 
 Replace the address baked into the pairing payload by `hr_pairing.build`, so the QR survives a moved

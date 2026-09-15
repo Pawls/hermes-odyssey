@@ -82,6 +82,7 @@ Two corollaries specific to Hermes, both load-bearing:
 hermes remote pair --label "Pixel 9"
 hermes remote status
 hermes remote revoke <id>
+hermes remote attach [--resume <id>]
 ```
 
 `pair` draws a QR in the terminal and prints the certificate fingerprint underneath it. Compare
@@ -91,6 +92,24 @@ the middle does not survive.
 The code in the QR **is** the credential, and unlike PawlRemote it is not a short-lived offer: it
 stays valid until the device is revoked. Clear the screen once the phone has it, and treat a
 screenshot of it as a password.
+
+## Sitting beside the phone in a terminal
+
+A plain `hermes --tui` spawns a gateway of its own, and that gateway then owns any session it
+opens: a phone turn into it is refused with 4090, because Hermes allows one live owner per
+session. `hermes remote attach` launches the same Ink TUI in its attach mode instead, pointed at
+`/api/ws` on whichever process is hosting the listener, so the terminal is a second transport on
+the phone's process and both stream the same turn. `--resume <id>` opens a stored session; without
+it the TUI starts a new one, which the phone can then resume.
+
+The terminal is paired as a device of its own for the duration, labelled `terminal pid N`, and
+revoked when the TUI exits. It has to be: the listener's gate is the one thing that admits a
+socket on every host, and Node's `WebSocket` takes a URL and nothing else, so the token rides in
+the upgrade query (`?device=`), which the listener honours on upgrades only and strips before the
+dashboard sees the query. The TUI trusts the listener's self-signed certificate through
+`NODE_EXTRA_CA_CERTS`, which `attach` sets for the child; a value already in the environment is
+replaced for that process. A terminal killed outright leaves its device record behind, and the
+next `attach` revokes any whose pid is gone.
 
 ## The listener
 

@@ -196,6 +196,21 @@ def test_the_handler_gets_a_starlette_socket_and_the_devices_identity(host, pair
     assert echoed == 'echo:{"method":"gateway.ping"}'
 
 
+def test_the_terminals_query_credential_is_admitted_here_too(host, paired, monkeypatch):
+    """``hermes remote attach`` against a gateway host: same URL shape, same gate, same identity."""
+    device, token = paired
+    monkeypatch.setattr(host, "HANDLE_WS", _echo)
+
+    async def scenario(port):
+        from websockets.asyncio.client import connect
+
+        async with connect(f"ws://127.0.0.1:{port}/api/ws?device={token}", proxy=None) as ws:
+            return json.loads(await ws.recv())
+
+    opening = _drive(host, scenario)
+    assert opening["identity"] == {"user_id": f"device:{device.id}", "provider": "hermes-remote-device"}
+
+
 def test_only_the_gateway_path_is_a_socket(host, paired, monkeypatch):
     _device, token = paired
     monkeypatch.setattr(host, "HANDLE_WS", _echo)

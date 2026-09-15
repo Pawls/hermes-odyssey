@@ -446,6 +446,51 @@ def test_gated_mode_lets_the_phones_own_ticket_through(hr_listener, paired, monk
     assert _drive(hr_listener, scenario)["query"] == "ticket=mine"
 
 
+def test_an_upgrade_may_carry_the_device_token_in_its_query(hr_listener, paired, monkeypatch):
+    """The attached TUI connects with Node's own ``WebSocket``, which takes a URL and no headers.
+    Its token rides in the query, is checked by the same gate, and never reaches the upstream."""
+    import hr_wsauth
+
+    monkeypatch.setattr(hr_wsauth, "listener_upgrade_query", lambda: {"token": "session-master"})
+
+    async def scenario(pair):
+        from websockets.asyncio.client import connect
+
+        async with connect(_ws_url(pair) + f"?device={paired}&resume=abc", proxy=None) as socket:
+            return json.loads(await socket.recv())
+
+    seen = _drive(hr_listener, scenario)
+    assert seen["query"] == "resume=abc&token=session-master"
+    assert paired not in json.dumps(seen)
+
+
+def test_a_wrong_device_token_in_the_query_is_refused(hr_listener, paired):
+    async def scenario(pair):
+        from websockets.asyncio.client import connect
+        from websockets.exceptions import InvalidStatus
+
+        try:
+            async with connect(_ws_url(pair) + "?device=hr1.000000000000.nope", proxy=None):
+                return "accepted"
+        except InvalidStatus as exc:
+            return exc.response.status_code
+
+    assert _drive(hr_listener, scenario) == 403
+
+
+def test_the_query_credential_is_not_honoured_on_http(hr_listener, paired):
+    """A token in a URL lands in access logs and browser history; only the upgrade, which has no
+    other way to carry one, gets to use it."""
+
+    async def scenario(pair):
+        import httpx
+
+        async with httpx.AsyncClient() as client:
+            return await client.get(pair.base_url + f"/x?device={paired}")
+
+    assert _drive(hr_listener, scenario).status_code == 401
+
+
 def test_frames_flow_both_ways(hr_listener, paired, monkeypatch):
     import hr_wsauth
 

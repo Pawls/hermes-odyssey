@@ -1,13 +1,21 @@
-"""``hermes remote`` — pair a phone, see what is paired, take it away again.
+"""``hermes remote`` — pair a phone, see what is paired, take it away again, or sit beside it.
 
 Registered through ``ctx.register_cli_command``, which wires an argparse subtree at startup and
 needs no change to ``hermes_cli/main.py``. The handler signature is ``fn(args) -> int``; the
 integer becomes the process exit code, so a script can branch on it.
 
-Three subcommands and no more, because those are the three states a device can be in. ``pair``
-mints a token and draws it; ``status`` says what exists and whether the listener is up; ``revoke``
-ends one. There is deliberately no ``rename`` and no ``list --json``: the phone is the client, and
-anything richer belongs on the phone.
+Three device subcommands and no more, because those are the three states a device can be in.
+``pair`` mints a token and draws it; ``status`` says what exists and whether the listener is up;
+``revoke`` ends one. There is deliberately no ``rename`` and no ``list --json``: the phone is the
+client, and anything richer belongs on the phone.
+
+``attach`` is the fourth and is about the terminal, not the phone. A ``hermes --tui`` of its own
+spawns its own gateway, which then *owns* any session it opens, and a phone turn into that session
+is refused (the 4090 on record in the plan). ``attach`` instead launches the TUI as a second
+transport on the process that is hosting the listener, so the terminal and the phone stream the
+same live session. The terminal is paired as a device of its own for the duration, because the
+listener's gate is the one thing that admits a socket on every host - dashboard, desktop app or
+gateway - and Node's ``WebSocket`` can carry a credential only in the URL.
 
 This module must stay importable without FastAPI, uvicorn or an event loop. ``hermes remote`` runs
 in the plain CLI process, which has no dashboard in it, and a heavyweight import here would be
@@ -16,11 +24,14 @@ paid by every ``hermes`` invocation that touches plugin CLI discovery.
 
 from __future__ import annotations
 
+import os
+import re
 import socket
 import ssl
 import sys
 import time
-from typing import List, Optional
+from typing import Callable, List, Optional
+from urllib.parse import urlencode
 
 try:  # package import (``hermes_plugins.hermes_remote``)
     from . import hr_devices, hr_identity, hr_listener, hr_pairing, hr_qr, hr_routes
@@ -39,8 +50,19 @@ COMMAND_DESCRIPTION = (
     "listener whose certificate the phone pins.\n\n"
     "  hermes remote pair --label 'Pixel 9'   show a pairing QR\n"
     "  hermes remote status                   what is paired, and is the listener up\n"
-    "  hermes remote revoke <id>              end one device's access"
+    "  hermes remote revoke <id>              end one device's access\n"
+    "  hermes remote attach [--resume <id>]   open the TUI on the session the phone sees"
 )
+
+#: Label of the device ``attach`` pairs for the terminal. The pid is in it so a record left by a
+#: terminal that died without revoking itself can be recognised and reaped on the next attach.
+TERMINAL_LABEL_PREFIX = "terminal pid "
+_TERMINAL_LABEL = re.compile(re.escape(TERMINAL_LABEL_PREFIX) + r"(\d+)$")
+
+#: What ``attach`` launches once the environment is prepared. Resolved lazily to Hermes' own TUI
+#: launcher, which replaces this process's job with the Ink app and exits with its code; tests set
+#: it to a stub that records the environment instead.
+LAUNCH: Optional[Callable[[Optional[str]], None]] = None
 
 
 # ---- argparse tree ---------------------------------------------------------
@@ -74,6 +96,13 @@ def setup(parser) -> None:
     revoke.add_argument("device", nargs="?", default="", help="Device id, or a unique prefix of it")
     revoke.add_argument("--all", action="store_true", help="Revoke every live device")
 
+    attach = sub.add_parser(
+        "attach", help="Open the TUI as a second view of the process the phone is attached to"
+    )
+    attach.add_argument(
+        "--resume", default="", metavar="ID", help="Open this stored session rather than a new one"
+    )
+
     parser.set_defaults(remote_command=None)
 
 
@@ -86,6 +115,8 @@ def handler(args) -> int:
         return _status(args)
     if command == "revoke":
         return _revoke(args)
+    if command == "attach":
+        return _attach(args)
     print(COMMAND_DESCRIPTION)
     return 2
 
@@ -312,3 +343,70 @@ def _revoke(args) -> int:
         _out("within a few seconds.")
         return 0
     return _err(f"{device_id} was already revoked.")
+
+
+# ---- attach ----------------------------------------------------------------
+
+
+def _launcher() -> Callable[[Optional[str]], None]:
+    if LAUNCH is not None:
+        return LAUNCH
+    from hermes_cli.main_tui_launch import _launch_tui
+
+    return _launch_tui
+
+
+def _reap_dead_terminals(devices: List) -> int:
+    """Revoke terminal devices whose process is gone. A terminal revokes itself on exit; one that
+    was killed outright cannot, and its token is then held by nobody, so ending it costs nothing."""
+    reaped = 0
+    for device in devices:
+        match = _TERMINAL_LABEL.match(device.label)
+        if device.revoked or match is None or hr_listener.pid_alive(match.group(1)):
+            continue
+        if hr_devices.revoke_device(device.id):
+            reaped += 1
+    return reaped
+
+
+def _attach(args) -> int:
+    running = hr_listener.live_runtime()
+    if running is None:
+        return _err(
+            "Nothing is hosting the listener right now, so there is no process to attach to.\n"
+            "Open the desktop app, run `hermes dashboard`, or start the gateway (`hermes gateway "
+            "start`), then try again."
+        )
+    identity = hr_identity.existing_identity()
+    if identity is None:
+        return _err("There is no listener certificate on disk; `hermes remote pair` creates it.")
+    port = int(running.get("port") or 0)
+    probe = _probe(str(running.get("host") or ""), port, identity.der)
+    if not probe.startswith("listening"):
+        return _err(f"The listener is {probe}.")
+
+    try:
+        _reap_dead_terminals(hr_devices.list_devices())
+        device, token = hr_devices.create_device(f"{TERMINAL_LABEL_PREFIX}{os.getpid()}")
+    except hr_devices.DeviceStoreUnavailable as exc:
+        return _err(f"Could not write the device store: {exc}")
+
+    # The TUI's attach mode reads the socket URL from the environment and connects with Node's own
+    # WebSocket, which takes nothing but a URL: the device token rides in the query, which the
+    # listener honours on upgrades and never relays. The certificate is self-signed, so Node is
+    # handed it as an extra trust anchor; the SAN carries 127.0.0.1, which is what makes that
+    # enough. ``_launch_tui`` keeps an explicit URL rather than discovering one.
+    query = urlencode({hr_listener.WS_DEVICE_QUERY: token})
+    os.environ["HERMES_TUI_GATEWAY_URL"] = f"wss://127.0.0.1:{port}{hr_routes.GATEWAY_WS_PATH}?{query}"
+    os.environ["NODE_EXTRA_CA_CERTS"] = str(identity.cert_path)
+    resume = (args.resume or "").strip() or None
+    _out(f"Attaching to the {running.get('surface') or 'listener'} host (pid {running.get('pid')}) as device {device.id}.")
+    code = 0
+    try:
+        _launcher()(resume)
+    except SystemExit as exc:  # the launcher exits with the TUI's code; the device must still end
+        code = exc.code if isinstance(exc.code, int) else 1
+    finally:
+        # Ends the socket within the listener's revocation sweep if the TUI left it open.
+        hr_devices.revoke_device(device.id)
+    return code

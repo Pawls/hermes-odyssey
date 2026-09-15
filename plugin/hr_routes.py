@@ -35,6 +35,11 @@ TOKEN_ROUTES: tuple[str, ...] = (
     f"{API_PREFIX}{ROUTE_WS_TICKET}",
 )
 
+#: Path of the JSON-RPC gateway socket, the same on every host: the dashboard mounts it there and
+#: the gateway host answers it there. Lives here rather than in ``hr_wsauth`` because the plain
+#: CLI (``hermes remote attach``) needs it without pulling FastAPI in.
+GATEWAY_WS_PATH = "/api/ws"
+
 
 # The response bodies, built here so the two hosts that answer these routes - the dashboard's
 # router (``dashboard/api.py``) and the gateway's in-process app (``hr_gateway_host``) - cannot

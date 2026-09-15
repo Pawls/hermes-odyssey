@@ -22,9 +22,14 @@ from __future__ import annotations
 from typing import Dict, Optional, Tuple
 
 try:  # package import (``hermes_plugins.hermes_remote``)
+    from . import hr_routes
     from .hr_provider import PROVIDER_NAME
 except ImportError:  # standalone path load
+    import hr_routes  # type: ignore[no-redef]
     from hr_provider import PROVIDER_NAME  # type: ignore[no-redef]
+
+#: Kept here as well as in ``hr_routes`` because the two hosts read it from this module.
+GATEWAY_WS_PATH = hr_routes.GATEWAY_WS_PATH
 
 #: What the phone is told to do with the credential it was (or was not) given. Informational:
 #: the phone appends ``?ticket=`` when it is handed one and otherwise opens the bare path, so a
@@ -34,9 +39,6 @@ MODE_LOOPBACK = "loopback"
 #: The gateway host (``hr_gateway_host``): no dashboard at all, the listener terminates the
 #: socket itself, and the bearer on the upgrade is the whole credential.
 MODE_DIRECT = "direct"
-
-#: Path of the JSON-RPC gateway socket on the dashboard.
-GATEWAY_WS_PATH = "/api/ws"
 
 
 def auth_required() -> bool:
