@@ -181,15 +181,18 @@ def claim_path() -> Path:
 
 # ---- which process hosts the port ------------------------------------------
 #
-# Every Hermes process that mounts the dashboard router arms this listener: ``hermes dashboard``
-# on 9119, and the desktop app's headless ``hermes serve --port 0`` (``web_server.py`` mounts plugin
-# routers unconditionally). Only one can bind 9443, and it matters which, because a phone can
-# stream into a live session only from inside the process that owns it (``session_transports.py``
-# fans events out across transports of one process and nothing crosses to another). So the host
-# must be the process whose window Paul is looking at. The desktop app outranks the dashboard; a
-# future always-on gateway host ranks below both. The rule is enforced with two files: the runtime
-# record says who holds the port, and a claim says a better candidate wants it. The holder yields
-# on the next sweep, the claimant binds on its next retry, and a phone's reconnect does the rest.
+# Three Hermes processes arm this listener. Two mount the dashboard router and proxy to it:
+# ``hermes dashboard`` on 9119, and the desktop app's headless ``hermes serve --port 0``
+# (``web_server.py`` mounts plugin routers unconditionally). The third is the always-on
+# ``hermes gateway run``, which serves no HTTP of its own, so there the listener terminates
+# ``/api/ws`` itself (:mod:`hr_gateway_host`). Only one can bind 9443, and it matters which,
+# because a phone can stream into a live session only from inside the process that owns it
+# (``session_transports.py`` fans events out across transports of one process and nothing crosses
+# to another). So the host must be the process whose window Paul is looking at, and the gateway
+# only when no window is open. The desktop app outranks the dashboard, which outranks the gateway.
+# The rule is enforced with two files: the runtime record says who holds the port, and a claim
+# says a better candidate wants it. The holder yields on the next sweep, the claimant binds on its
+# next retry, and a phone's reconnect does the rest.
 
 SURFACE_DESKTOP = "desktop"
 SURFACE_DASHBOARD = "dashboard"
@@ -209,7 +212,9 @@ def this_surface() -> str:
 
     The desktop's backend is the only one launched with ``HERMES_SERVE_HEADLESS=1``
     (``hermes_cli/main.py::_dashboard_sanitize_desktop_env``); ``hermes dashboard`` imports the
-    web server without it; anything else is treated as the lowest rank.
+    web server without it; anything else is treated as the lowest rank. That "anything else" is
+    the gateway when :mod:`hr_gateway_host` armed the listener, and nothing when it did not -
+    ranking is not the gate on opening a socket, arming is.
     """
     if os.environ.get("HERMES_SERVE_HEADLESS", "").strip() == "1":
         return SURFACE_DESKTOP
@@ -409,6 +414,18 @@ def read_runtime() -> Optional[Dict[str, Any]]:
         return json.loads(runtime_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+
+
+def live_runtime() -> Optional[Dict[str, Any]]:
+    """The runtime record, but only if the process that wrote it is still running.
+
+    A host that dies by ``os._exit`` (the gateway's shutdown path) or a crash leaves its record
+    behind; the host rule already ignores such a record, and this is the same answer for the CLI.
+    """
+    record = read_runtime()
+    if not record or not pid_alive(record.get("pid")):
+        return None
+    return record
 
 
 def _write_claim() -> None:
@@ -777,7 +794,7 @@ async def _send_error(send, rejected: _Rejected) -> None:
 # ---- running it ------------------------------------------------------------
 
 
-async def start(upstream_port: int, *, quiet: bool = False) -> bool:
+async def start(upstream_port: int, *, quiet: bool = False, app: Any = None) -> bool:
     """Bind the TLS socket and serve, on the caller's event loop. True once serving.
 
     Runs on the dashboard's own loop rather than a thread of its own: the loop is already there,
@@ -786,6 +803,10 @@ async def start(upstream_port: int, *, quiet: bool = False) -> bool:
     SIGINT from the dashboard would break Ctrl-C. ``startup()`` alone is already serving.
     ``quiet`` makes a failed bind a debug line: the host loop retries every few seconds while
     another process holds the port, and that is expected, not an error.
+
+    ``app`` is what answers behind the TLS socket: by default a :class:`ReverseProxy` to the
+    dashboard on ``upstream_port``; the gateway host passes its own in-process app and
+    ``upstream_port=0``, since there is nothing to proxy to.
     """
     global _server, _sweeper
     if state.running:
@@ -799,7 +820,7 @@ async def start(upstream_port: int, *, quiet: bool = False) -> bool:
 
     identity = hr_identity.ensure_identity()
     host, port = configured_host(), configured_port()
-    proxy = ReverseProxy(upstream_port)
+    proxy = ReverseProxy(upstream_port) if app is None else app
     config = uvicorn.Config(
         proxy,
         host=host,
@@ -845,10 +866,10 @@ async def start(upstream_port: int, *, quiet: bool = False) -> bool:
     state.started_at = int(time.time())
     _write_runtime()
     _log.info(
-        "hermes-remote listener: https://%s:%d -> 127.0.0.1:%d as %s (cert %s)",
+        "hermes-remote listener: https://%s:%d -> %s as %s (cert %s)",
         host,
         port,
-        upstream_port,
+        f"127.0.0.1:{upstream_port}" if upstream_port else "in-process",
         this_surface(),
         identity.fingerprint_hex[:16],
     )
@@ -882,13 +903,13 @@ async def stop() -> None:
     _clear_claim()
 
 
-async def host_tick(upstream_port: int) -> str:
+async def host_tick(upstream_port: int, app: Any = None) -> str:
     """One step of the host rule; the word returned says what it did, for logs and tests.
 
     Not hosting: ``wait`` behind a live holder that ranks at least as high, otherwise ``claim``
     (a lower-ranked holder, told to yield) or ``bind`` — and either of those becomes ``bound``
     when the bind succeeds. Hosting: ``yield`` when a live higher-ranked claimant wants the
-    port, else ``hold``.
+    port, else ``hold``. ``app`` is passed through to :func:`start`.
     """
     surface = this_surface()
     if state.running:
@@ -906,18 +927,18 @@ async def host_tick(upstream_port: int) -> str:
         return decision
     if decision == "claim":
         _write_claim()
-    if await start(upstream_port, quiet=holder is not None):
+    if await start(upstream_port, quiet=holder is not None, app=app):
         _clear_claim()
         return "bound"
     return decision
 
 
-async def _host_loop(upstream_port: int) -> None:
+async def _host_loop(upstream_port: int, app: Any = None) -> None:
     """Keep :func:`host_tick` running for the life of the process, logging only transitions."""
     last = ""
     while True:
         try:
-            outcome = await host_tick(upstream_port)
+            outcome = await host_tick(upstream_port, app)
             if outcome in {"wait", "claim", "bind"} and state.error and state.error != last:
                 _log.info("hermes-remote listener: %s; retrying every %.0fs", state.error, _HOST_RETRY_SECONDS)
             last = state.error if outcome in {"wait", "claim", "bind"} else ""

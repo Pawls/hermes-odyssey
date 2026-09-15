@@ -31,7 +31,8 @@ in that list.
 | --- | --- |
 | `plugin/` | the Hermes plugin: device auth provider, API router, pairing CLI, TLS listener |
 | `plugin/hr_identity.py` | the self-signed P-256 certificate the phone pins |
-| `plugin/hr_listener.py` | the TLS reverse proxy in front of loopback 9119 |
+| `plugin/hr_listener.py` | the TLS reverse proxy in front of loopback 9119, and the rule for which process hosts it |
+| `plugin/hr_gateway_host.py` | the same socket answered in-process inside `hermes gateway run`, for when no window is open |
 | `plugin/hr_cli.py`, `hr_qr.py`, `hr_pairing.py` | `hermes remote`, its QR encoder, and the payload |
 | `plugin/dashboard/` | what the dashboard imports: `manifest.json` + `api.py` |
 | `tests/` | run with the Hermes venv; see below |
@@ -109,6 +110,19 @@ dashboard. The holder records itself in `remote/listener.json`; a higher-ranked 
 retry, and the phone's reconnect lands it in the new host. Opening or closing the desktop app
 therefore moves the phone within a few seconds. `hermes remote status` says which process is
 hosting and, while a handover is pending, which one is waiting.
+
+With no window open at all, the always-on `hermes gateway run` hosts it (`hr_gateway_host.py`).
+The gateway serves no HTTP, so there is nothing to proxy to; instead the listener answers the two
+plugin routes itself and terminates `/api/ws` in-process by handing a Starlette socket to the same
+`tui_gateway.ws.handle_ws` the dashboard mounts. `/health` and `/ws-ticket` report `mode: direct`
+there, and the ticket is null: the bearer on the upgrade is the whole credential. The gateway ranks
+below both windows, so it yields the port the moment one opens and takes it back when it closes,
+each within a few seconds. It arms only in a process whose argv is a real `gateway run` by the
+gateway's own matcher, and only once the gateway's PID file names that process, so a `gateway
+status`, a child of the gateway, or a second `gateway run` left behind by `hermes update` never
+opens the socket. The socket runs on a thread and loop of its own inside the gateway; nothing on
+the RPC path needs the gateway's loop, and a phone streaming tokens should not compete with the
+platform adapters for it.
 
 | variable | default | what |
 | --- | --- | --- |

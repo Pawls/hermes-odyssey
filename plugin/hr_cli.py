@@ -129,7 +129,7 @@ def _pair(args) -> int:
 
     hosts = hr_pairing.candidate_hosts()
     port = hr_listener.configured_port()
-    running = hr_listener.read_runtime()
+    running = hr_listener.live_runtime()
     if running and running.get("port"):
         # A live listener is the authority on where the phone should connect; the configured port
         # is only what the next one will use.
@@ -176,7 +176,8 @@ def _pair(args) -> int:
     _out(f"  password. To end it:  hermes remote revoke {device.id}")
     _out()
     if not running:
-        _out("  The listener starts with the dashboard. Run `hermes dashboard` if it is not up.")
+        _out("  The listener starts with the desktop app, `hermes dashboard`, or the gateway")
+        _out("  (`hermes gateway start`). None of them is hosting it right now.")
         _out()
     return 0
 
@@ -210,10 +211,10 @@ def _probe(bind_host: str, port: int, expected_der: bytes) -> str:
 def _host_lines(runtime: dict) -> list:
     """Who holds the port, and whether a better-ranked process is waiting for it."""
     surface = runtime.get("surface") or "unknown surface"
-    lines = [
-        f"               hosted by {surface}, pid {runtime.get('pid')},"
-        f" proxying to 127.0.0.1:{runtime.get('upstream_port')}"
-    ]
+    upstream = int(runtime.get("upstream_port") or 0)
+    # The gateway host has no dashboard behind it; it records upstream_port 0 and answers itself.
+    where = f"proxying to 127.0.0.1:{upstream}" if upstream else "serving in-process"
+    lines = [f"               hosted by {surface}, pid {runtime.get('pid')}, {where}"]
     claim = hr_listener.read_claim()
     if claim and hr_listener.pid_alive(claim.get("pid")):
         lines.append(
@@ -239,6 +240,13 @@ def _status(args) -> int:
     runtime = hr_listener.read_runtime()
     if runtime is None:
         _out(f"  Listener     not recorded as running (would use port {hr_listener.configured_port()})")
+    elif not hr_listener.pid_alive(runtime.get("pid")):
+        # Left behind by a host that did not shut down cleanly. It holds nothing: the next host
+        # overwrites it, and until then the phone has nothing to reach.
+        _out(
+            f"  Listener     not running; a stale record from {runtime.get('surface') or 'an unknown surface'}"
+            f" (pid {runtime.get('pid')}, no longer alive) remains"
+        )
     elif identity is None:
         _out("  Listener     recorded as running, but there is no certificate on disk")
     else:

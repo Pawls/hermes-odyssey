@@ -10,11 +10,13 @@ Registered here:
 3. ``hermes remote pair | status | revoke`` (:mod:`hr_cli`), which is where a person mints a
    device token and reads the certificate fingerprint off a QR code.
 
-The fourth piece, the TLS listener, is **not** registered here, and the omission is deliberate.
-``register`` runs in every Hermes process, so opening a socket from it would open one in the CLI
-and in the gateway too. The listener is armed from ``dashboard/api.py`` instead — that file is
-imported only by the dashboard's plugin mounter, which makes it the one reliable marker for the
-process that owns port 9119.
+The fourth piece, the TLS listener, is armed in two places and never from ``register`` as such.
+``register`` runs in every Hermes process, so opening a socket from it unconditionally would open
+one in the CLI too. Where a dashboard is mounted it is armed from ``dashboard/api.py`` — that file
+is imported only by the dashboard's plugin mounter, which makes it the one reliable marker for the
+process that owns port 9119. In the always-on gateway, which mounts nothing, :func:`register`
+calls ``hr_gateway_host.arm``, which refuses every process that is not a real ``gateway run`` and
+holds the port only while no window is open to hold it.
 
 The routes themselves live in ``dashboard/manifest.json`` + ``dashboard/api.py``, which the
 dashboard imports separately — a plugin router is mounted at ``/api/plugins/hermes-remote`` only
@@ -70,6 +72,20 @@ def _register_cli(ctx) -> None:
     )
 
 
+def _arm_gateway_host(ctx) -> None:
+    """Host the listener here when this process is the always-on ``hermes gateway run``.
+
+    ``arm`` is a no-op everywhere else, by the gateway's own process matcher plus its PID file,
+    so this is safe to call from every ``register``. The gateway ranks below both windows, so it
+    holds the port only while neither is open.
+    """
+    from . import hr_gateway_host
+
+    if hr_gateway_host.arm():
+        ctx.on_unload(hr_gateway_host.disarm)
+        logger.info("%s: hosting the listener in this gateway process", _TAG)
+
+
 def register(ctx) -> None:
     """Plugin entry point."""
     global LAST_SKIP_REASON
@@ -94,6 +110,11 @@ def register(ctx) -> None:
     except Exception as exc:  # noqa: BLE001 — the dashboard half still works without the CLI
         LAST_SKIP_REASON = f"CLI registration failed: {exc}"
         logger.warning("%s: %s", _TAG, LAST_SKIP_REASON)
+
+    try:
+        _arm_gateway_host(ctx)
+    except Exception as exc:  # noqa: BLE001 — a gateway that cannot host is a gateway without a phone, not a broken one
+        logger.warning("%s: gateway host not armed: %s", _TAG, exc)
 
     logger.info(
         "%s: registered device auth provider and %d token route(s): %s",

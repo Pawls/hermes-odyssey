@@ -142,6 +142,38 @@ Kill: if `handle_ws` cannot be driven from the bare-ASGI listener without pullin
 app state in, host a minimal Starlette app instead. If the gateway process cannot import
 `tui_gateway.server` cleanly, stop and consider a separate always-on `hermes serve` instead.
 
+Status 2026-09-15: shipped. The three unknowns, answered by reading and then by a run:
+
+- `tui_gateway.server` is already imported in every gateway process: `run_startup.py:667` does
+  it unconditionally to start the Group Chat worker. Its stdout redirect and threads are the
+  gateway's normal state.
+- The plugin does not know it is the gateway from `_HERMES_GATEWAY`: discovery runs from
+  `hermes_cli.main` before `gateway.run` is imported, so the marker is absent at `register`
+  time (found in the first live run, where the plugin registered and never armed). Arming is
+  gated on argv by the gateway's own `looks_like_gateway_command_line` and on
+  `gateway.status.get_running_pid()` naming this process, checked in the host thread before
+  the first bind. A `gateway status`, a child, or a `--replace` loser never hosts.
+- No loop to join: the socket runs on its own thread and loop (`hr_gateway_host.arm`).
+  `WSTransport` binds to whichever loop accepts the socket and marshals writes onto it, so
+  `handle_ws` needs nothing from the gateway's loop. Neither kill criterion fired: `handle_ws`
+  ran on a `starlette.websockets.WebSocket` built from the bare scope, with the ASGI connect
+  message replayed to it because Starlette's `accept()` consumes it.
+
+Proven in an isolated `HERMES_HOME` on 9444: the gateway (pid 20024) bound with
+`upstream_port: 0`; over the phone's exact path `/health` answered `mode: direct`, `/ws-ticket`
+a null ticket, `/api/ws` sent `gateway.ready`, `session.create` answered, `prompt.submit` answered
+`streaming`, and `message.start`, `thinking.delta` and `message.complete` followed (the turn's
+text was LiteLLM refusing the keyless scratch home, which is the provider's state). A headless
+serve then claimed the port and the gateway yielded in 3 s; killing the serve, the gateway
+re-hosted in 3 s. Scratch home, device and session deleted afterwards. `hermes remote status`
+now says "serving in-process" for this host and calls out a record from a dead pid as stale
+instead of reporting it as hosting. Ten new tests (`tests/test_gateway_host.py`), suite at 139.
+
+Not done: the live always-on gateway (pid 19240, pidfile-named; a second `gateway run`, pid
+39992, is also alive from before `hermes update`) still runs the pre-V4 plugin and needs
+`hermes gateway restart` to host 9443. That restart is Paul's call, and the phone-in-hand test
+after it is the one thing unverified.
+
 ### V5 — TUI as a viewer of the shared process · Fable 5.1 / high
 
 `hermes remote attach [--resume <id>]` launches `hermes --tui` with `HERMES_TUI_GATEWAY_URL` pointing at

@@ -26,9 +26,14 @@ try:  # package import (``hermes_plugins.hermes_remote``)
 except ImportError:  # standalone path load
     from hr_provider import PROVIDER_NAME  # type: ignore[no-redef]
 
-#: What the phone is told to do with the credential it was (or was not) given.
+#: What the phone is told to do with the credential it was (or was not) given. Informational:
+#: the phone appends ``?ticket=`` when it is handed one and otherwise opens the bare path, so a
+#: mode it has never heard of costs it nothing.
 MODE_GATED = "gated"
 MODE_LOOPBACK = "loopback"
+#: The gateway host (``hr_gateway_host``): no dashboard at all, the listener terminates the
+#: socket itself, and the bearer on the upgrade is the whole credential.
+MODE_DIRECT = "direct"
 
 #: Path of the JSON-RPC gateway socket on the dashboard.
 GATEWAY_WS_PATH = "/api/ws"

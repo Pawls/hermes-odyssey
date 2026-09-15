@@ -124,13 +124,9 @@ def _require_device(request: Request):
 def health(request: Request) -> Dict[str, Any]:
     """Liveness plus the caller's own identity and the current WS credential mode."""
     device = _require_device(request)
-    return {
-        "ok": True,
-        "plugin": hr_routes.PLUGIN_NAME,
-        "version": hr_routes.PLUGIN_VERSION,
-        "mode": hr_wsauth.mode(),
-        "device": {"id": device.id, "label": device.label},
-    }
+    return hr_routes.health_payload(
+        device_id=device.id, device_label=device.label, mode=hr_wsauth.mode()
+    )
 
 
 @router.post(hr_routes.ROUTE_WS_TICKET)
@@ -145,9 +141,9 @@ def ws_ticket(request: Request) -> Dict[str, Any]:
     device = _require_device(request)
     minted = hr_wsauth.mint_client_ticket(user_id=f"device:{device.id}")
     ticket, expires_in = minted if minted is not None else (None, None)
-    return {
-        "mode": hr_wsauth.mode(),
-        "ws_path": hr_wsauth.GATEWAY_WS_PATH,
-        "ticket": ticket,
-        "expires_in": expires_in,
-    }
+    return hr_routes.ws_ticket_payload(
+        mode=hr_wsauth.mode(),
+        ws_path=hr_wsauth.GATEWAY_WS_PATH,
+        ticket=ticket,
+        expires_in=expires_in,
+    )

@@ -34,3 +34,25 @@ TOKEN_ROUTES: tuple[str, ...] = (
     f"{API_PREFIX}{ROUTE_HEALTH}",
     f"{API_PREFIX}{ROUTE_WS_TICKET}",
 )
+
+
+# The response bodies, built here so the two hosts that answer these routes - the dashboard's
+# router (``dashboard/api.py``) and the gateway's in-process app (``hr_gateway_host``) - cannot
+# drift apart in a field the phone reads.
+
+
+def health_payload(*, device_id: str, device_label: str, mode: str) -> dict:
+    """``/health``: liveness plus the caller's own identity and the WS credential mode."""
+    return {
+        "ok": True,
+        "plugin": PLUGIN_NAME,
+        "version": PLUGIN_VERSION,
+        "mode": mode,
+        "device": {"id": device_id, "label": device_label},
+    }
+
+
+def ws_ticket_payload(*, mode: str, ws_path: str, ticket, expires_in) -> dict:
+    """``/ws-ticket``: what to put on the ``/api/ws`` upgrade. ``ticket`` is null whenever the
+    listener itself vouches for the socket, which is every mode but gated."""
+    return {"mode": mode, "ws_path": ws_path, "ticket": ticket, "expires_in": expires_in}
