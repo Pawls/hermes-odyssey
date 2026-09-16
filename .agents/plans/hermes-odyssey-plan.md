@@ -331,6 +331,19 @@ done: `config.yaml` and the junction say `hermes-odyssey`, the gateway restart (
 app build with no re-scan. Proven: `hermes plugins install Pawls/hermes-odyssey/plugin --ref <sha>`
 into a scratch home installs with no scan finding. Remaining for V8: the catalog PR and the APK story.
 
+Status 2026-09-16 (catalog entry): drafted and proven, not submitted. `plugin.yaml` now declares
+`requires_hermes: ">=0.21"`: `hr_cli` imports `hermes_cli.main_tui_launch._launch_tui`, which first
+exists in 0.21.0, and every other import is older (`register_dashboard_auth_provider` 0.14,
+`register_token_route` 0.17, `ctx.on_unload` 0.20), all checked against `origin/main`, which the
+installed Hermes now matches exactly. The entry is `name: hermes-odyssey`, `subdir: plugin`,
+`tier: community`, `category: platform` (where the other client and messaging plugins sit), no
+declared capabilities (matching `hermes plugins validate`), `platforms` empty although only Windows
+is exercised. It passes `scripts/validate_plugin_catalog.py` and `load_catalog`, and
+`install_catalog_entry` into a scratch home cloned the pin and wrote the provenance record. Held
+back: the plugin is useless without the app, which is private and not yet installable by anyone else,
+and the README is still a map of this machine (junction paths, the private repo's folder). The APK
+story and a user-facing README come before the PR, and the entry's `sha` is re-pinned then.
+
 ## Rejected
 
 - **Retry on 4001 as the fix for the lost message.** The refusal on record was 4090, which no retry
