@@ -293,6 +293,20 @@ V7's unproven live move is now proven: after `hermes update` and `hermes gateway
 `02112da5c040` live with the gateway hosting 9443. Still open from V7: the phone reconnecting on the
 new build with no re-scan.
 
+Status 2026-09-16 (later): the V7 reconnect is proven. `installDebug` onto the Pixel 9, a cold launch,
+and `hermes talaria status` showed `02112da5c040` live within a minute (gateway pid 43272), with no QR
+scan.
+
+Catalog packaging, first finding: `hermes plugins validate plugin` passes every admission check, but a
+real install from git (`HERMES_HOME=<scratch> hermes plugins install file:///…/hermes-remote#plugin
+--ref <sha> --no-enable`) is **blocked**. The install scanner's `\bsudo\b` rule
+(`tools/skills_guard.py:316`, high, privilege_escalation) matches the six printed Unix commands in
+`plugin/hr_firewall.py:75-100`. Every external plugin scans as `community` trust, and community plus a
+caution verdict blocks without `--force`. Undecided: drop the `sudo` prefix and label the shell as a
+root shell, document `--force`, move the Unix commands into docs, or open an upstream PR to narrow the
+rule. Catalog admission also needs a public https repo (this repo has no remote) and a PR adding
+`plugin-catalog/hermes-talaria.yaml` to hermes-agent with `subdir: plugin` and an exact SHA.
+
 ## Rejected
 
 - **Retry on 4001 as the fix for the lost message.** The refusal on record was 4090, which no retry
