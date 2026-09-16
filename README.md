@@ -1,45 +1,64 @@
-# hermes-odyssey
+# Odyssey for Hermes Agent
 
-The desktop half of a phone client for a live [Hermes](https://github.com/NousResearch/hermes-agent)
-session on the LAN. The phone half is `%USERPROFILE%\AndroidStudioProjects\HermesRemote`.
+Use a live [Hermes Agent](https://github.com/NousResearch/hermes-agent) session from your Android
+phone: chat, stream turns, answer approvals and prompts, and resume sessions, over your own Wi-Fi.
+This repository is the desktop half, a Hermes plugin. The phone connects straight to your machine
+over TLS pinned to a certificate your desktop generates; there is no account and no cloud service.
 
-`docs/PLAN.md` is the contract and the reasoning. Read it first; this file is only the map.
+Not affiliated with Nous Research. Everything here is free.
 
-## Why a plugin and not a fork
+## Requirements
+
+- Hermes Agent 0.21 or newer, on Windows, macOS, or Linux (so far exercised on Windows)
+- An Android phone running Android 8.0 or newer, on the same network as the desktop
+
+## Install
+
+```
+hermes plugins install Pawls/hermes-odyssey/plugin --enable
+hermes gateway restart
+```
+
+Then get the app from the [latest release](https://github.com/Pawls/hermes-odyssey/releases/latest)
+(`odyssey-<version>.apk`; allow installs from your browser or file manager when Android asks). A
+Play Store listing, "Odyssey for Hermes Agent", is coming. Release APKs are signed with a
+certificate whose SHA-256 is
+
+```
+61:76:6b:b4:d8:37:38:fe:55:c2:45:fa:8a:15:7b:a9:a9:93:36:c5:9e:7a:0a:9c:d3:76:da:01:77:fd:c6:7d
+```
+
+and `apksigner verify --print-certs odyssey-<version>.apk` shows it.
+
+## Pair
+
+```
+hermes odyssey pair --label "My phone"
+```
+
+Scan the code with the app, and tap **Same, pair** only if the fingerprint on the phone matches
+the one under the code in your terminal. If the phone cannot reach the desktop, run
+`hermes odyssey firewall` and run the command it prints (see *Getting through the firewall*).
+`hermes odyssey status` lists paired phones and `hermes odyssey revoke <id>` removes one.
+
+## Development
+
+`docs/PLAN.md` is the contract and the reasoning; the rest of this file is the map.
 
 `hermes-agent` is upstream NousResearch code that `hermes update` pulls, and its
 `plugins/AGENTS.md` says plugins never touch core. So this lives out of tree and reaches
 Hermes through `register(ctx)` alone.
 
-Hermes discovers plugins in `$HERMES_HOME/plugins/`, which on this machine is
-`%LOCALAPPDATA%\hermes\plugins\`. The working copy stays here and appears there as a
-directory junction:
+For development, link the working copy into `$HERMES_HOME/plugins/` instead of installing it.
+On Windows (`%LOCALAPPDATA%\hermes\plugins\`) a directory junction needs no administrator rights:
 
 ```
-mklink /J "%LOCALAPPDATA%\hermes\plugins\hermes-odyssey" "%USERPROFILE%\source\repos\hermes-remote\plugin"
+mklink /J "%LOCALAPPDATA%\hermes\plugins\hermes-odyssey" "<this checkout>\plugin"
 ```
-
-No administrator rights needed for a junction.
 
 A user plugin's Python is imported only when its name is in `plugins.enabled` in
-`config.yaml` (GHSA-mcfc-hp25-cjv7), so the junction alone does nothing. `hermes-odyssey` is
-in that list.
-
-### Renamed from hermes-talaria
-
-Both halves must move together, because the phone reaches `/api/plugins/hermes-odyssey` and scans
-`hermes-odyssey://pair` codes, and an older build knows neither.
-
-1. Replace the junction: `rmdir "%LOCALAPPDATA%\hermes\plugins\hermes-talaria"`, then the `mklink`
-   above. The directory name is the import name, so the old junction would load a second copy.
-2. In `config.yaml`, swap `hermes-talaria` for `hermes-odyssey` under `plugins.enabled`.
-3. Restart every Hermes process (dashboard, desktop, gateway). The first one to load the plugin
-   moves `%LOCALAPPDATA%\hermes\talaria\` to `odyssey\`, so device tokens and the certificate
-   survive and a paired phone needs only the new app build, not a new scan.
-4. The CLI is now `hermes odyssey`, and the environment variables are `HERMES_ODYSSEY_PORT`,
-   `HERMES_ODYSSEY_HOST` and `HERMES_ODYSSEY_LISTENER`.
-
-A firewall rule created under the old name keeps working; it matches by port and program.
+`config.yaml` (GHSA-mcfc-hp25-cjv7), so the link alone does nothing: add `hermes-odyssey` there,
+or run `hermes plugins enable hermes-odyssey`.
 
 ## Layout
 
@@ -218,14 +237,14 @@ Elevation required, and Windows resolves the program by exact path, so `hermes u
 new `generation-…` directory will silently stop matching. If the phone stops connecting after an
 update, check this rule's `Program` first.
 
-## Status
+## Development history
 
 Phase 1 is done: the plugin loads, the device store works, the router is mounted and
 bearer-gated, the TLS listener proxies HTTP and WebSocket traffic, and `hermes odyssey` pairs,
 reports and revokes. 116 tests pass, and the listener has now been seen coming up inside a real
 `hermes dashboard` run and refusing an anonymous request over TLS (`docs/PLAN.md` §5.8).
 
-Phases 2 and 3 are done in `%USERPROFILE%\AndroidStudioProjects\HermesRemote`: the shared Kotlin
+Phases 2 and 3 are done in the app's own repository: the shared Kotlin
 protocol, and an Android app on top of it. An emulator has paired over the LAN address, listed the
 real session store, resumed a session and rendered its history, survived the desktop restarting
 underneath it, and refused itself after `hermes odyssey revoke`. See `docs/PLAN.md` §5.9–§5.11.
