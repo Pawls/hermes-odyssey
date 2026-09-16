@@ -344,6 +344,18 @@ back: the plugin is useless without the app, which is private and not yet instal
 and the README is still a map of this machine (junction paths, the private repo's folder). The APK
 story and a user-facing README come before the PR, and the entry's `sha` is re-pinned then.
 
+Status 2026-09-16 (0.1.0 released): the APK part of the story is shipped and Play is next (Paul:
+both). The app id is now the permanent `dev.pawl.odyssey`, and release builds sign with a key kept
+outside every repo (certificate SHA-256 `61766bb4…fdc67d`, printed in the README so a download can be
+checked). `v0.1.0` on this repo carries `odyssey-0.1.0.apk`; the file downloaded from
+`releases/latest` hashes to what was built. The README now opens with install, the app, and
+pairing; development notes follow. Proven: the release APK paired on the Pixel 9 through the deep
+link (fingerprint matched the desktop's) and stayed paired across the in-place 0.1.0 update; the
+README's `hermes plugins install Pawls/hermes-odyssey/plugin --enable` installed and enabled into a
+scratch home. The catalog entry is re-pinned to `v0.1.0` (`55d9633`) and still validates. Remaining
+for V8: open the catalog PR (Paul approves; it goes to NousResearch/hermes-agent from a fork) and the
+Play listing.
+
 ## Rejected
 
 - **Retry on 4001 as the fix for the lost message.** The refusal on record was 4090, which no retry
