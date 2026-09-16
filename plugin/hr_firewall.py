@@ -9,6 +9,10 @@ through a junction (``cpython-3.11-…`` → ``cpython-3.11.15-…``) and the ru
 target, so the path is resolved before it is printed. That path moves when ``hermes update``
 installs a new runtime generation, which silently orphans the rule.
 
+Unix commands carry no elevation prefix; the shell label says "as root" instead. Hermes's install
+scanner blocks community plugins on that prefix's bare token even in printed text, and the user
+knows their own way to root.
+
 Standard library only: this is imported by the CLI process.
 """
 
@@ -71,8 +75,8 @@ def instructions(
     if system == "Darwin":
         fw = "/usr/libexec/ApplicationFirewall/socketfilterfw"
         return Instructions(
-            shell="Terminal",
-            command=f"sudo {fw} --add '{program}'\nsudo {fw} --unblockapp '{program}'",
+            shell="Terminal, as root",
+            command=f"{fw} --add '{program}'\n{fw} --unblockapp '{program}'",
             note=(
                 "Needed only when the Application Firewall is on "
                 f"(`{fw} --getglobalstate`). It is off by default, and it allows a program, not a port."
@@ -82,22 +86,22 @@ def instructions(
     if system == "Linux":
         if which("ufw"):
             return Instructions(
-                shell="shell",
-                command=f"sudo ufw allow {port}/tcp comment 'Hermes Talaria'",
-                note="Needed only when `sudo ufw status` reports active.",
+                shell="a shell, as root",
+                command=f"ufw allow {port}/tcp comment 'Hermes Talaria'",
+                note="Needed only when `ufw status` (as root) reports active.",
             )
         if which("firewall-cmd"):
             return Instructions(
-                shell="shell",
+                shell="a shell, as root",
                 command=(
-                    f"sudo firewall-cmd --permanent --add-port={port}/tcp\n"
-                    "sudo firewall-cmd --reload"
+                    f"firewall-cmd --permanent --add-port={port}/tcp\n"
+                    "firewall-cmd --reload"
                 ),
                 note="Opens the port in the default zone; add --zone=<zone> if the LAN is in another.",
             )
         return Instructions(
-            shell="shell",
-            command=f"sudo nft add rule inet filter input tcp dport {port} accept",
+            shell="a shell, as root",
+            command=f"nft add rule inet filter input tcp dport {port} accept",
             note=(
                 "No ufw or firewalld found. This assumes an `inet filter input` chain exists and does "
                 "not persist across reboots; most machines without either tool filter nothing inbound."
