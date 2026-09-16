@@ -50,6 +50,7 @@ A firewall rule created under the old name keeps working; it matches by port and
 | `plugin/hr_listener.py` | the TLS reverse proxy in front of loopback 9119, and the rule for which process hosts it |
 | `plugin/hr_gateway_host.py` | the same socket answered in-process inside `hermes gateway run`, for when no window is open |
 | `plugin/hr_cli.py`, `hr_qr.py`, `hr_pairing.py` | `hermes talaria`, its QR encoder, and the payload |
+| `plugin/hr_firewall.py` | the per-OS firewall command `hermes talaria firewall` prints |
 | `plugin/dashboard/` | what the dashboard imports: `manifest.json` + `api.py` |
 | `tests/` | run with the Hermes venv; see below |
 | `docs/PLAN.md` | the plan, the protocol findings, the risks |
@@ -98,6 +99,7 @@ Two corollaries specific to Hermes, both load-bearing:
 hermes talaria pair --label "Pixel 9"
 hermes talaria status
 hermes talaria revoke <id>
+hermes talaria firewall
 hermes talaria attach [--resume <id>]
 ```
 
@@ -186,12 +188,21 @@ therefore ends a live session rather than only the next request. The store is th
 the CLI runs in its own process; an unreadable store closes nothing, since a disk error that
 answered "no devices are paired" would drop every session on the machine.
 
-### Getting through the Windows firewall
+### Getting through the firewall
+
+`hermes talaria firewall` prints the command for this OS, scoped to the listener's port: a Windows
+allow rule on the runtime interpreter, the macOS Application Firewall's `--unblockapp`, or `ufw`,
+`firewalld` or `nft` on Linux, whichever is installed. It prints and never runs it, because every
+variant needs elevation. `pair` points at it. The rest of this section is why the Windows rule
+looks the way it does.
 
 The first LAN bind raises a Windows Firewall prompt. Answering it *no* writes two inbound `Block`
 rules that suppress the prompt for good, and the program they name is the Hermes **runtime**
 interpreter — `.hermes-runtime\python\generation-…\cpython-3.11.15-…\python.exe` — not the venv
 one. A rule written against the venv `python.exe` is the wrong rule.
+
+The runtime is reached through a junction (`cpython-3.11-…` → `cpython-3.11.15-…`) and Windows keys
+the rule on the resolved path, so the command names the junction's target.
 
 This is what is installed here instead of answering the prompt, and it is narrower than what the
 prompt would have created, which allows the whole interpreter on every inbound port:

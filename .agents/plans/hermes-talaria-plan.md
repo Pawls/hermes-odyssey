@@ -279,6 +279,20 @@ Firewall setup emitted as a command by `hermes talaria pair` rather than living 
 macOS and Linux equivalents. Then catalog packaging so `hermes plugins install` works, and an APK
 story for the phone half.
 
+Status 2026-09-16: firewall part shipped; catalog packaging and the APK story remain. The command is
+its own verb, `hermes talaria firewall` (`plugin/hr_firewall.py`), and `pair` prints one line pointing
+at it, because a four-line elevated command on every pairing screen buries the credential warning.
+A loopback bind gets a "loopback only" line instead. Finding: `sys._base_executable` names the
+runtime through the `cpython-3.11-…` junction, while the working rule (and Windows' match) uses the
+`cpython-3.11.15-…` target, so the path goes through `os.path.realpath`. Proven: 180 plugin tests
+(including a real junction on Windows); live `hermes talaria firewall` printed exactly the
+`Program` of the rule that admits the phone today (`HermesRemoteListener`).
+
+V7's unproven live move is now proven: after `hermes update` and `hermes gateway restart` (gateway pid
+17528), `remote/` is gone, `talaria/` holds the store, and `hermes talaria status` lists device
+`02112da5c040` live with the gateway hosting 9443. Still open from V7: the phone reconnecting on the
+new build with no re-scan.
+
 ## Rejected
 
 - **Retry on 4001 as the fix for the lost message.** The refusal on record was 4090, which no retry

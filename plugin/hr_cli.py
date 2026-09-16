@@ -13,7 +13,8 @@ client, and anything richer belongs on the phone.
 spawns its own gateway, which then *owns* any session it opens, and a phone turn into that session
 is refused (the 4090 on record in the plan). ``attach`` instead launches the TUI as a second
 transport on the process that is hosting the listener, so the terminal and the phone stream the
-same live session. The terminal is paired as a device of its own for the duration, because the
+same live session. ``firewall`` prints, and never runs, the elevated command that admits the
+phone; see :mod:`hr_firewall`. The terminal is paired as a device of its own for the duration, because the
 listener's gate is the one thing that admits a socket on every host - dashboard, desktop app or
 gateway - and Node's ``WebSocket`` can carry a credential only in the URL.
 
@@ -34,9 +35,19 @@ from typing import Callable, List, Optional
 from urllib.parse import urlencode
 
 try:  # package import (``hermes_plugins.hermes_talaria``)
-    from . import hr_devices, hr_identity, hr_listener, hr_mdns, hr_pairing, hr_qr, hr_routes
+    from . import (
+        hr_devices,
+        hr_firewall,
+        hr_identity,
+        hr_listener,
+        hr_mdns,
+        hr_pairing,
+        hr_qr,
+        hr_routes,
+    )
 except ImportError:  # standalone path load
     import hr_devices  # type: ignore[no-redef]
+    import hr_firewall  # type: ignore[no-redef]
     import hr_identity  # type: ignore[no-redef]
     import hr_listener  # type: ignore[no-redef]
     import hr_mdns  # type: ignore[no-redef]
@@ -52,6 +63,7 @@ COMMAND_DESCRIPTION = (
     "  hermes talaria pair --label 'Pixel 9'   show a pairing QR\n"
     "  hermes talaria status                   what is paired, and is the listener up\n"
     "  hermes talaria revoke <id>              end one device's access\n"
+    "  hermes talaria firewall                 the command that lets the phone through\n"
     "  hermes talaria attach [--resume <id>]   open the TUI on the session the phone sees"
 )
 
@@ -97,6 +109,8 @@ def setup(parser) -> None:
     revoke.add_argument("device", nargs="?", default="", help="Device id, or a unique prefix of it")
     revoke.add_argument("--all", action="store_true", help="Revoke every live device")
 
+    sub.add_parser("firewall", help="Print the command that admits the phone through this OS's firewall")
+
     attach = sub.add_parser(
         "attach", help="Open the TUI as a second view of the process the phone is attached to"
     )
@@ -116,6 +130,8 @@ def handler(args) -> int:
         return _status(args)
     if command == "revoke":
         return _revoke(args)
+    if command == "firewall":
+        return _firewall(args)
     if command == "attach":
         return _attach(args)
     print(COMMAND_DESCRIPTION)
@@ -214,6 +230,40 @@ def _pair(args) -> int:
         _out("  The listener starts with the desktop app, `hermes dashboard`, or the gateway")
         _out("  (`hermes gateway start`). None of them is hosting it right now.")
         _out()
+    if _loopback_only(running):
+        _out("  The listener is bound to loopback only, so no phone can reach it.")
+        _out()
+    else:
+        _out("  Phone cannot connect? The firewall is the usual cause:  hermes talaria firewall")
+        _out()
+    return 0
+
+
+def _listener_port() -> int:
+    running = hr_listener.live_runtime()
+    return int(running["port"]) if running and running.get("port") else hr_listener.configured_port()
+
+
+def _loopback_only(running: Optional[dict]) -> bool:
+    host = str((running or {}).get("host") or hr_listener.configured_host())
+    return host in ("127.0.0.1", "::1", "localhost")
+
+
+# ---- firewall --------------------------------------------------------------
+
+
+def _firewall(args) -> int:
+    steps = hr_firewall.instructions(_listener_port())
+    if steps is None:
+        return _err("No firewall command is known for this platform; open the listener's TCP port inbound.")
+    _out()
+    _out(f"  Run in {steps.shell}:")
+    _out()
+    for line in steps.command.splitlines():
+        _out(f"    {line}")
+    _out()
+    _out(f"  {steps.note}")
+    _out()
     return 0
 
 

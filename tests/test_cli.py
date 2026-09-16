@@ -306,5 +306,27 @@ def test_attach_reaps_a_terminal_whose_process_died(run, hosted, hr_devices):
 def test_bare_hermes_talaria_prints_the_usage_and_fails(run):
     result = run()
     assert result.code == 2
-    for command in ("pair", "status", "revoke"):
+    for command in ("pair", "status", "revoke", "firewall"):
         assert command in result.out
+
+
+# ---- firewall --------------------------------------------------------------
+
+
+def test_firewall_prints_a_command_for_the_listener_port(run, monkeypatch):
+    monkeypatch.setattr(importlib.import_module("platform"), "system", lambda: "Linux")
+    monkeypatch.setenv("HERMES_TALARIA_PORT", "9555")
+    result = run("firewall")
+    assert result.code == 0
+    assert "9555" in result.out
+
+
+def test_pairing_points_at_the_firewall_command(run):
+    assert "hermes talaria firewall" in run("pair").out
+
+
+def test_a_loopback_bind_is_named_instead_of_the_firewall(run, monkeypatch):
+    monkeypatch.setenv("HERMES_TALARIA_HOST", "127.0.0.1")
+    out = run("pair").out
+    assert "loopback only" in out
+    assert "hermes talaria firewall" not in out
