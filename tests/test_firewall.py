@@ -1,4 +1,4 @@
-"""``hermes talaria firewall``: a command per platform that admits the listener's port and nothing
+"""``hermes odyssey firewall``: a command per platform that admits the listener's port and nothing
 wider, printed for a person to run with elevation.
 
 The Windows case carries the finding that makes this module worth having: the runtime interpreter

@@ -1,9 +1,9 @@
-name: hermes-talaria
+name: hermes-odyssey
 version: 0.1.0
 description: "Phone client for a live Hermes session: a bearer-token dashboard-auth provider, hashed device-token storage, and a plugin-owned API router that hands the phone a WebSocket credential for /api/ws."
 author: "Paul"
 license: "MIT"
-homepage: "https://github.com/Pawls/hermes-talaria"
+homepage: "https://github.com/Pawls/hermes-odyssey"
 tags:
   - remote
   - mobile

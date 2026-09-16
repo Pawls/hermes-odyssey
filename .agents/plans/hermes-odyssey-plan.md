@@ -1,4 +1,4 @@
-> Turn hermes-remote into a distributable Hermes plugin named hermes-talaria, and make a phone-sent
+> Turn hermes-remote into a distributable Hermes plugin named hermes-odyssey, and make a phone-sent
 > message land in the session Paul is looking at. Start with V1: it is the only slice that turns the
 > failure that already happened into something a person can see, and every later slice is verified
 > through it. Diff sign-off: `git diff --stat` on both repos before each commit; the Android repo is
@@ -306,8 +306,21 @@ caution verdict blocks without `--force`. Decided (Paul): drop the prefix and la
 root", since root is reachable several ways and the docstring must avoid the token too. Proven: 180
 tests pass; the same scratch install at the fix commit installs `hermes-talaria` with no scan finding.
 An upstream PR narrowing the rule to exempt printed text stays worth filing (the rule already carries a
-`sudo.request` exemption for the same class of false positive). Catalog admission also needs a public https repo (this repo has no remote) and a PR adding
-`plugin-catalog/hermes-talaria.yaml` to hermes-agent with `subdir: plugin` and an exact SHA.
+`sudo.request` exemption for the same class of false positive). Catalog admission also needs a public
+https repo and a PR adding `plugin-catalog/hermes-odyssey.yaml` to hermes-agent with `subdir: plugin`
+and an exact SHA.
+
+Renamed to hermes-odyssey before publishing (Paul). "Talaria" was already taken three times on GitHub:
+CharlyApps/Hermes-Talaria (a profile trimmer), Skynet-Ventures/talaria (a native iOS Hermes client,
+the closest to this product), and eltmon/hermes-plugin-talaria (a T3 Code plugin). The rename repeats
+V7's surface in both repos, so every `talaria` identifier from V7's list is now `odyssey`, and
+`hr_paths.LEGACY_STATE_DIRNAME` is `talaria` (the `remote` migration is gone; no store by that name
+exists anywhere). Store listing caution: "Hermes" is Nous Research's product name, so the Play title
+should read as "Odyssey for Hermes Agent", not as an official app. Proven: 180 plugin tests, shared
+`allTests`, and `assembleDebug`. Decided for publishing (Paul): the plugin repo is public as
+`Pawls/hermes-odyssey`, with history rewritten to the GitHub noreply author and the LAN IP and user
+paths scrubbed; the Android repo is private as `Pawls/hermes-odyssey-android`. Everything essential
+stays free in both halves.
 
 ## Rejected
 

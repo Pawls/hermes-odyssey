@@ -1,4 +1,4 @@
-"""``hermes talaria pair | status | revoke``, driven through the argparse tree Hermes builds.
+"""``hermes odyssey pair | status | revoke``, driven through the argparse tree Hermes builds.
 
 The parser is assembled here exactly as ``_attach_plugin_cli_command`` assembles it — a subparser
 per command, ``handler_fn`` as ``func`` — so a change to :func:`hr_cli.setup` that would not parse
@@ -200,7 +200,7 @@ def test_an_unknown_device_is_an_error_not_a_silent_success(run):
 def test_revoke_with_no_argument_says_what_to_do(run):
     result = run("revoke")
     assert result.code == 1
-    assert "hermes talaria status" in result.err
+    assert "hermes odyssey status" in result.err
 
 
 def test_revoke_all_ends_every_live_device(run, hr_devices):
@@ -303,7 +303,7 @@ def test_attach_reaps_a_terminal_whose_process_died(run, hosted, hr_devices):
 # ---- the bare command ------------------------------------------------------
 
 
-def test_bare_hermes_talaria_prints_the_usage_and_fails(run):
+def test_bare_hermes_odyssey_prints_the_usage_and_fails(run):
     result = run()
     assert result.code == 2
     for command in ("pair", "status", "revoke", "firewall"):
@@ -315,18 +315,18 @@ def test_bare_hermes_talaria_prints_the_usage_and_fails(run):
 
 def test_firewall_prints_a_command_for_the_listener_port(run, monkeypatch):
     monkeypatch.setattr(importlib.import_module("platform"), "system", lambda: "Linux")
-    monkeypatch.setenv("HERMES_TALARIA_PORT", "9555")
+    monkeypatch.setenv("HERMES_ODYSSEY_PORT", "9555")
     result = run("firewall")
     assert result.code == 0
     assert "9555" in result.out
 
 
 def test_pairing_points_at_the_firewall_command(run):
-    assert "hermes talaria firewall" in run("pair").out
+    assert "hermes odyssey firewall" in run("pair").out
 
 
 def test_a_loopback_bind_is_named_instead_of_the_firewall(run, monkeypatch):
-    monkeypatch.setenv("HERMES_TALARIA_HOST", "127.0.0.1")
+    monkeypatch.setenv("HERMES_ODYSSEY_HOST", "127.0.0.1")
     out = run("pair").out
     assert "loopback only" in out
-    assert "hermes talaria firewall" not in out
+    assert "hermes odyssey firewall" not in out

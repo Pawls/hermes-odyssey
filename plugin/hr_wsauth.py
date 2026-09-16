@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Dict, Optional, Tuple
 
-try:  # package import (``hermes_plugins.hermes_talaria``)
+try:  # package import (``hermes_plugins.hermes_odyssey``)
     from . import hr_routes
     from .hr_provider import PROVIDER_NAME
 except ImportError:  # standalone path load

@@ -1,6 +1,6 @@
 """The plugin's router, mounted the way the dashboard mounts it.
 
-A bare FastAPI app with ``include_router(..., prefix="/api/plugins/hermes-talaria")`` reproduces
+A bare FastAPI app with ``include_router(..., prefix="/api/plugins/hermes-odyssey")`` reproduces
 :func:`hermes_cli.web_server_dashboard._mount_plugin_api_routes` without starting a dashboard. The
 token-auth seam is *not* installed here, which is the point of several of these tests: the routes
 must refuse an unauthenticated caller on their own, because in loopback mode a route that trusted
@@ -13,7 +13,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-PREFIX = "/api/plugins/hermes-talaria"
+PREFIX = "/api/plugins/hermes-odyssey"
 
 
 @pytest.fixture()
@@ -89,7 +89,7 @@ def test_an_unreadable_store_is_503_not_401(client, store_path, paired):
 def test_health_names_the_calling_device(client, paired):
     body = client.get(PREFIX + "/health", headers=_auth(paired)).json()
     assert body["ok"] is True
-    assert body["plugin"] == "hermes-talaria"
+    assert body["plugin"] == "hermes-odyssey"
     assert body["device"]["id"] == paired.split(".")[1]
     assert body["device"]["label"] == "Pixel 8"
     assert body["mode"] == "loopback"
@@ -121,7 +121,7 @@ def test_gated_mode_mints_a_single_use_ticket(api, client, paired, monkeypatch):
 
     info = ws_tickets.consume_ticket(ticket)
     assert info["user_id"] == f"device:{paired.split('.')[1]}"
-    assert info["provider"] == "hermes-talaria-device"
+    assert info["provider"] == "hermes-odyssey-device"
     with pytest.raises(ws_tickets.TicketInvalid):
         ws_tickets.consume_ticket(ticket)
 

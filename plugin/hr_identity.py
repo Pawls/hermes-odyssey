@@ -19,7 +19,7 @@ and every TLS stack a phone might use has supported it for a decade.
 expired mid-run would break every paired phone at once with an error none of them can explain.
 
 The private key is the most sensitive thing this repository writes. It never leaves
-``$HERMES_HOME/talaria/`` and is never logged, printed or put in a QR code.
+``$HERMES_HOME/odyssey/`` and is never logged, printed or put in a QR code.
 """
 
 from __future__ import annotations
@@ -34,19 +34,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
 
-try:  # package import (``hermes_plugins.hermes_talaria``)
+try:  # package import (``hermes_plugins.hermes_odyssey``)
     from . import hr_paths
 except ImportError:  # standalone path load from dashboard/api.py
     import hr_paths  # type: ignore[no-redef]
 
-#: Files under ``$HERMES_HOME/talaria/``. PEM rather than DER so ``ssl_certfile``/``ssl_keyfile``
+#: Files under ``$HERMES_HOME/odyssey/``. PEM rather than DER so ``ssl_certfile``/``ssl_keyfile``
 #: can be handed to uvicorn unchanged and a person can read them with any tool.
 CERT_FILENAME = "listener-cert.pem"
 KEY_FILENAME = "listener-key.pem"
 
 #: Subject and issuer CN. Cosmetic — nothing checks it — but it is what a browser's certificate
 #: viewer shows when someone debugs the listener by hand.
-COMMON_NAME = "Talaria"
+COMMON_NAME = "Odyssey"
 
 LIFETIME_DAYS = 3653  # ten years, leap days included
 _SKEW_HOURS = 24  # backdate notBefore so a phone with a slow clock still connects
@@ -65,7 +65,7 @@ class Identity:
 
     @property
     def fingerprint_hex(self) -> str:
-        """Lowercase hex SHA-256 of the DER, colon-free. What ``hermes talaria status`` prints."""
+        """Lowercase hex SHA-256 of the DER, colon-free. What ``hermes odyssey status`` prints."""
         return hashlib.sha256(self.der).hexdigest()
 
     @property
@@ -209,7 +209,7 @@ def ensure_identity(*, regenerate: bool = False) -> Identity:
 
     Regeneration happens on three triggers and no others: the files are absent, they cannot be
     parsed, or the certificate has expired. ``regenerate=True`` forces it, which is what
-    ``hermes talaria rotate`` would use — and which unpairs every device by design.
+    ``hermes odyssey rotate`` would use — and which unpairs every device by design.
     """
     cert_file, key_file = cert_path(), key_path()
     with _lock:
@@ -225,7 +225,7 @@ def ensure_identity(*, regenerate: bool = False) -> Identity:
 def existing_identity() -> Optional[Identity]:
     """The certificate if one is already on disk, else ``None``. Never generates.
 
-    ``hermes talaria status`` uses this: reporting "no certificate yet" is the honest answer, and
+    ``hermes odyssey status`` uses this: reporting "no certificate yet" is the honest answer, and
     generating one as a side effect of a status command would be a surprise.
     """
     return _load(cert_path(), key_path())

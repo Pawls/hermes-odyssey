@@ -19,16 +19,16 @@ here.
 
 A WebSocket needs one thing more, because the bearer is on the upgrade and the frames after it
 carry nothing: :func:`_sweep_revoked` re-reads the device store every few seconds and closes the
-sockets whose device has gone. Without it ``hermes talaria revoke`` ended a device's *requests* and
+sockets whose device has gone. Without it ``hermes odyssey revoke`` ended a device's *requests* and
 left its open session running, which a phone's heartbeat then kept alive indefinitely.
 
-The bearer *is* forwarded upstream, because ``/api/plugins/hermes-talaria/…`` needs it to clear that
+The bearer *is* forwarded upstream, because ``/api/plugins/hermes-odyssey/…`` needs it to clear that
 second gate. The dashboard session token travels the other way and only in loopback mode: it is
 attached to the WebSocket upgrade query by :func:`hr_wsauth.listener_upgrade_query`, server side,
 and never appears in a response, a log or a QR code.
 
 One client cannot put a bearer on its upgrade: the Ink TUI in attach mode opens ``/api/ws`` with
-Node's own ``WebSocket``, which takes a URL and nothing else. ``hermes talaria attach`` therefore
+Node's own ``WebSocket``, which takes a URL and nothing else. ``hermes odyssey attach`` therefore
 pairs the terminal as a device of its own and carries that token in the upgrade query
 (:data:`WS_DEVICE_QUERY`), which :func:`_authenticate` accepts on WebSocket upgrades only and
 :meth:`ReverseProxy._upgrade_url` strips before the upstream sees the query.
@@ -50,9 +50,9 @@ from typing import Any, Deque, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
 # ``hr_wsauth`` is imported where it is used rather than here: it pulls ``hr_provider``, which
-# imports ``hermes_cli.dashboard_auth`` and through it FastAPI. ``hermes talaria`` reads this
+# imports ``hermes_cli.dashboard_auth`` and through it FastAPI. ``hermes odyssey`` reads this
 # module's configuration in the plain CLI process, and that cost would land on every invocation.
-try:  # package import (``hermes_plugins.hermes_talaria``)
+try:  # package import (``hermes_plugins.hermes_odyssey``)
     from . import hr_devices, hr_identity, hr_paths
 except ImportError:  # standalone path load from dashboard/api.py
     import hr_devices  # type: ignore[no-redef]
@@ -65,12 +65,12 @@ _log = logging.getLogger(__name__)
 #: without re-scanning.
 DEFAULT_PORT = 9443
 
-ENV_PORT = "HERMES_TALARIA_PORT"
-ENV_HOST = "HERMES_TALARIA_HOST"
+ENV_PORT = "HERMES_ODYSSEY_PORT"
+ENV_HOST = "HERMES_ODYSSEY_HOST"
 #: Set to ``0``/``off``/``false``/``no`` to load the plugin without opening a LAN socket.
-ENV_ENABLED = "HERMES_TALARIA_LISTENER"
+ENV_ENABLED = "HERMES_ODYSSEY_LISTENER"
 
-#: Where a running listener records itself, so ``hermes talaria status`` in another process can say
+#: Where a running listener records itself, so ``hermes odyssey status`` in another process can say
 #: something true. Removed on clean shutdown; a stale one is detected by probing the port.
 RUNTIME_FILENAME = "listener.json"
 
@@ -145,7 +145,7 @@ _DROP_WS_HEADERS = frozenset(
 #: by the proxy when the server behind it would have accepted the frame.
 _WS_MAX_BYTES = 64 * 1024 * 1024
 
-#: How often a live socket's device is re-checked against the store. ``hermes talaria revoke`` runs
+#: How often a live socket's device is re-checked against the store. ``hermes odyssey revoke`` runs
 #: in a *different process* — the plain CLI — so there is no in-process signal to hook and the file
 #: is the only channel. Five seconds is the delay between revoking and the phone dropping; it is
 #: bounded work no matter how many phones are attached, because one read answers for all of them.
@@ -362,12 +362,12 @@ def _sweep_revoked() -> None:
     try:
         paired = {d.id for d in hr_devices.list_devices() if not d.revoked}
     except hr_devices.DeviceStoreUnavailable as exc:
-        _log.warning("hermes-talaria listener: revocation sweep skipped: %s", exc)
+        _log.warning("hermes-odyssey listener: revocation sweep skipped: %s", exc)
         return
     for handle in list(_live.values()):
         if handle.device_id not in paired and not handle.revoked.is_set():
             _log.info(
-                "hermes-talaria listener: closing live socket for revoked device %s",
+                "hermes-odyssey listener: closing live socket for revoked device %s",
                 handle.device_id[:8],
             )
             handle.revoked.set()
@@ -381,12 +381,12 @@ async def _sweep_loop() -> None:
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 — a failed sweep must not stop the listener serving
-            _log.debug("hermes-talaria listener: revocation sweep failed: %s", exc)
+            _log.debug("hermes-odyssey listener: revocation sweep failed: %s", exc)
 
 
 def _write_runtime() -> None:
     """Record the live endpoint for other processes. Best effort: it is a convenience for
-    ``hermes talaria status``, and failing to write it must not stop the listener serving."""
+    ``hermes odyssey status``, and failing to write it must not stop the listener serving."""
     try:
         path = runtime_path()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -408,7 +408,7 @@ def _write_runtime() -> None:
             newline="\n",
         )
     except OSError as exc:
-        _log.debug("hermes-talaria: could not write %s: %s", RUNTIME_FILENAME, exc)
+        _log.debug("hermes-odyssey: could not write %s: %s", RUNTIME_FILENAME, exc)
 
 
 def _clear_runtime() -> None:
@@ -449,7 +449,7 @@ def _write_claim() -> None:
             newline="\n",
         )
     except OSError as exc:
-        _log.debug("hermes-talaria: could not write %s: %s", CLAIM_FILENAME, exc)
+        _log.debug("hermes-odyssey: could not write %s: %s", CLAIM_FILENAME, exc)
 
 
 def _clear_claim(only_mine: bool = True) -> None:
@@ -529,7 +529,7 @@ def _authenticate(scope: Dict[str, Any]):
     try:
         device = hr_devices.verify_token(_credential(scope))
     except hr_devices.DeviceStoreUnavailable as exc:
-        _log.warning("hermes-talaria listener: device store unavailable: %s", exc)
+        _log.warning("hermes-odyssey listener: device store unavailable: %s", exc)
         raise _Rejected(503, "device store unavailable") from exc
     if device is None:
         state.failures.append(time.monotonic())
@@ -653,7 +653,7 @@ class ReverseProxy:
         try:
             response = await self._http_client().send(request, stream=True)
         except httpx.HTTPError as exc:
-            _log.warning("hermes-talaria listener: upstream %s failed: %s", url, exc)
+            _log.warning("hermes-odyssey listener: upstream %s failed: %s", url, exc)
             await _send_error(send, _Rejected(502, "upstream unavailable"))
             return
 
@@ -712,7 +712,7 @@ class ReverseProxy:
             # Refusing before accepting produces an HTTP status on the handshake, which is what a
             # client can actually read; a close code after accept looks like a server fault.
             await send({"type": "websocket.close", "code": 1008})
-            _log.info("hermes-talaria listener: WS upgrade refused (%s)", rejected.detail)
+            _log.info("hermes-odyssey listener: WS upgrade refused (%s)", rejected.detail)
             return
 
         from websockets.asyncio.client import connect
@@ -740,7 +740,7 @@ class ReverseProxy:
                 max_size=_WS_MAX_BYTES,
             )
         except (InvalidStatus, OSError, asyncio.TimeoutError) as exc:
-            _log.warning("hermes-talaria listener: upstream WS refused: %s", exc)
+            _log.warning("hermes-odyssey listener: upstream WS refused: %s", exc)
             await send({"type": "websocket.close", "code": 1011})
             return
 
@@ -791,7 +791,7 @@ class ReverseProxy:
             for task in done:
                 exc = task.exception()
                 if exc is not None and not isinstance(exc, ConnectionClosed):
-                    _log.debug("hermes-talaria listener: WS pump ended: %s", exc)
+                    _log.debug("hermes-odyssey listener: WS pump ended: %s", exc)
         finally:
             _live.pop(key, None)
             await upstream.close()
@@ -842,7 +842,7 @@ async def start(upstream_port: int, *, quiet: bool = False, app: Any = None) -> 
         return True
     if not enabled():
         state.error = f"disabled by {ENV_ENABLED}"
-        _log.info("hermes-talaria listener: %s", state.error)
+        _log.info("hermes-odyssey listener: %s", state.error)
         return False
 
     import uvicorn
@@ -882,7 +882,7 @@ async def start(upstream_port: int, *, quiet: bool = False, app: Any = None) -> 
         bind_failed = True
     if bind_failed or server.should_exit:  # uvicorn has already logged why
         state.error = f"could not bind {host}:{port}"
-        _log.log(logging.DEBUG if quiet else logging.ERROR, "hermes-talaria listener: %s", state.error)
+        _log.log(logging.DEBUG if quiet else logging.ERROR, "hermes-odyssey listener: %s", state.error)
         return False
 
     _server = server
@@ -895,7 +895,7 @@ async def start(upstream_port: int, *, quiet: bool = False, app: Any = None) -> 
     state.started_at = int(time.time())
     _write_runtime()
     _log.info(
-        "hermes-talaria listener: https://%s:%d -> %s as %s (cert %s)",
+        "hermes-odyssey listener: https://%s:%d -> %s as %s (cert %s)",
         host,
         port,
         f"127.0.0.1:{upstream_port}" if upstream_port else "in-process",
@@ -916,7 +916,7 @@ async def _release() -> None:
         try:
             await _server.shutdown()
         except Exception as exc:  # noqa: BLE001 — shutdown must not raise into the dashboard's own
-            _log.debug("hermes-talaria listener: shutdown: %s", exc)
+            _log.debug("hermes-odyssey listener: shutdown: %s", exc)
         _server = None
     state.running = False
     _clear_runtime()
@@ -946,7 +946,7 @@ async def host_tick(upstream_port: int, app: Any = None) -> str:
         if should_yield(surface, claim):
             await _release()
             state.error = f"yielded {state.port or configured_port()} to {claim['surface']} (pid {claim['pid']})"
-            _log.info("hermes-talaria listener: %s", state.error)
+            _log.info("hermes-odyssey listener: %s", state.error)
             return "yield"
         return "hold"
     holder = _live_record(read_runtime())
@@ -969,13 +969,13 @@ async def _host_loop(upstream_port: int, app: Any = None) -> None:
         try:
             outcome = await host_tick(upstream_port, app)
             if outcome in {"wait", "claim", "bind"} and state.error and state.error != last:
-                _log.info("hermes-talaria listener: %s; retrying every %.0fs", state.error, _HOST_RETRY_SECONDS)
+                _log.info("hermes-odyssey listener: %s; retrying every %.0fs", state.error, _HOST_RETRY_SECONDS)
             last = state.error if outcome in {"wait", "claim", "bind"} else ""
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 — one bad tick must not end the loop
             state.error = f"{type(exc).__name__}: {exc}"
-            _log.exception("hermes-talaria listener: host tick failed")
+            _log.exception("hermes-odyssey listener: host tick failed")
         await asyncio.sleep(_HOST_RETRY_SECONDS)
 
 
@@ -1003,14 +1003,14 @@ async def _deferred_start() -> None:
         port = await _wait_for_bound_port(30.0)
         if port is None:
             state.error = "dashboard never reported a bound port"
-            _log.warning("hermes-talaria listener: %s", state.error)
+            _log.warning("hermes-odyssey listener: %s", state.error)
             return
         await _host_loop(port)
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001 — a listener that cannot start must not stop the dashboard
         state.error = f"{type(exc).__name__}: {exc}"
-        _log.exception("hermes-talaria listener: failed to start")
+        _log.exception("hermes-odyssey listener: failed to start")
 
 
 def schedule_start() -> None:
@@ -1023,12 +1023,12 @@ def schedule_start() -> None:
     if _task is not None and not _task.done():
         return
     if not enabled():
-        _log.info("hermes-talaria listener: disabled by %s", ENV_ENABLED)
+        _log.info("hermes-odyssey listener: disabled by %s", ENV_ENABLED)
         return
     if "hermes_cli.web_server" not in sys.modules:
         # There is no dashboard in this process, so there is nothing to proxy. This is the
         # condition that keeps a bare ``include_router`` in a test — or in any other host that
         # mounts the plugin's router — from opening a LAN socket as a side effect.
-        _log.debug("hermes-talaria listener: no dashboard in this process; not starting")
+        _log.debug("hermes-odyssey listener: no dashboard in this process; not starting")
         return
     _task = asyncio.create_task(_deferred_start())

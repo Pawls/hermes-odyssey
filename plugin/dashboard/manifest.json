@@ -1,11 +1,11 @@
 {
-  "name": "hermes-talaria",
-  "label": "Talaria",
+  "name": "hermes-odyssey",
+  "label": "Odyssey",
   "description": "Phone client for a live Hermes session — paired-device bearer auth and a WebSocket credential endpoint. No dashboard UI; the client is the Android app.",
   "icon": "Smartphone",
   "version": "0.1.0",
   "tab": {
-    "path": "/hermes-talaria",
+    "path": "/hermes-odyssey",
     "hidden": true
   },
   "entry": "dist/index.js",

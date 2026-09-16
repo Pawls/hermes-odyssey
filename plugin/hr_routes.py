@@ -13,7 +13,7 @@ from __future__ import annotations
 
 #: Must match ``name`` in both ``plugin.yaml`` and ``dashboard/manifest.json``, and the entry in
 #: ``plugins.enabled``. The dashboard gates the router on all three agreeing.
-PLUGIN_NAME = "hermes-talaria"
+PLUGIN_NAME = "hermes-odyssey"
 
 #: Reported on ``/health`` so the phone can refuse a desktop half it is too old to talk to.
 #: Keep in step with ``version`` in ``plugin.yaml`` and ``dashboard/manifest.json``;
@@ -37,7 +37,7 @@ TOKEN_ROUTES: tuple[str, ...] = (
 
 #: Path of the JSON-RPC gateway socket, the same on every host: the dashboard mounts it there and
 #: the gateway host answers it there. Lives here rather than in ``hr_wsauth`` because the plain
-#: CLI (``hermes talaria attach``) needs it without pulling FastAPI in.
+#: CLI (``hermes odyssey attach``) needs it without pulling FastAPI in.
 GATEWAY_WS_PATH = "/api/ws"
 
 

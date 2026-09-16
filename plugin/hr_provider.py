@@ -23,7 +23,7 @@ from hermes_cli.dashboard_auth import (
     TokenPrincipal,
 )
 
-try:  # package import (``hermes_plugins.hermes_talaria``)
+try:  # package import (``hermes_plugins.hermes_odyssey``)
     from . import hr_devices
 except ImportError:  # standalone path load
     import hr_devices  # type: ignore[no-redef]
@@ -31,22 +31,22 @@ except ImportError:  # standalone path load
 logger = logging.getLogger(__name__)
 
 #: Provider id. Stable: it appears in audit logs and in ``TokenPrincipal.provider``.
-PROVIDER_NAME = "hermes-talaria-device"
+PROVIDER_NAME = "hermes-odyssey-device"
 
 #: Granted to every paired device. Routes that must not be reachable from a phone can check for
-#: its absence; today every Talaria route requires exactly this one.
-DEVICE_SCOPE = "hermes-talaria"
+#: its absence; today every Odyssey route requires exactly this one.
+DEVICE_SCOPE = "hermes-odyssey"
 
 _NOT_INTERACTIVE = (
-    "TalariaDeviceProvider is a paired-device credential; there is no interactive login."
+    "OdysseyDeviceProvider is a paired-device credential; there is no interactive login."
 )
 
 
-class TalariaDeviceProvider(DashboardAuthProvider):
+class OdysseyDeviceProvider(DashboardAuthProvider):
     """Verifies a paired phone's bearer token against the hashed device store."""
 
     name = PROVIDER_NAME
-    display_name = "Talaria paired device"
+    display_name = "Odyssey paired device"
     supports_token = True
     supports_session = False
     supports_password = False

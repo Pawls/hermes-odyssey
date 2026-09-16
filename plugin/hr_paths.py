@@ -1,6 +1,6 @@
-"""Where Talaria keeps its state, resolved the same way Hermes resolves its own.
+"""Where Odyssey keeps its state, resolved the same way Hermes resolves its own.
 
-Everything lives under ``$HERMES_HOME/talaria/`` (``%LOCALAPPDATA%\\hermes\\talaria\\`` on this
+Everything lives under ``$HERMES_HOME/odyssey/`` (``%LOCALAPPDATA%\\hermes\\odyssey\\`` on this
 machine). ``hermes_constants.get_default_hermes_root`` is the authority — it unwraps a
 ``--profile`` home back to the root, so a profile-scoped dashboard and the gateway agree on one
 device list. It is imported lazily and behind a fallback because this module is also loaded
@@ -12,12 +12,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-#: Subdirectory of the Hermes root that holds every Talaria artifact.
-STATE_DIRNAME = "talaria"
+#: Subdirectory of the Hermes root that holds every Odyssey artifact.
+STATE_DIRNAME = "odyssey"
 
-#: Where the plugin kept its state while it was named hermes-remote. Moved, never copied, so a
+#: Where the plugin kept its state while it was named hermes-talaria. Moved, never copied, so a
 #: paired phone's token and pinned certificate stay valid across the rename.
-LEGACY_STATE_DIRNAME = "remote"
+LEGACY_STATE_DIRNAME = "talaria"
 
 #: Device records: hashed tokens only, never a recoverable secret.
 DEVICES_FILENAME = "devices.json"
@@ -41,12 +41,12 @@ def hermes_root() -> Path:
 
 
 def state_dir() -> Path:
-    """``<hermes root>/talaria``. Not created here; writers create it on demand."""
+    """``<hermes root>/odyssey``. Not created here; writers create it on demand."""
     return hermes_root() / STATE_DIRNAME
 
 
 def migrate_legacy_state() -> bool:
-    """Move ``<hermes root>/remote`` to ``state_dir()`` once, if only the old one exists.
+    """Move ``<hermes root>/talaria`` to ``state_dir()`` once, if only the old one exists.
 
     Every process that loads the plugin calls this, so two can race: the rename is atomic, and the
     loser sees the target present (or the source gone) and does nothing. Returns whether it moved.

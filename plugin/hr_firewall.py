@@ -24,7 +24,7 @@ import shutil
 import sys
 from typing import Callable, NamedTuple, Optional
 
-RULE_NAME = "HermesTalariaListener"
+RULE_NAME = "HermesOdysseyListener"
 
 
 class Instructions(NamedTuple):
@@ -60,13 +60,13 @@ def instructions(
             shell="PowerShell (as Administrator)",
             command=(
                 f"New-NetFirewallRule -Name '{RULE_NAME}' `\n"
-                f"    -DisplayName 'Hermes Talaria listener (TLS {port})' `\n"
+                f"    -DisplayName 'Hermes Odyssey listener (TLS {port})' `\n"
                 "    -Direction Inbound -Action Allow -Enabled True -Profile Private `\n"
                 f"    -Protocol TCP -LocalPort {port} -Program '{program}'"
             ),
             note=(
                 "The rule matches this exact interpreter path. After `hermes update` installs a new "
-                "runtime, run `hermes talaria firewall` again and replace the rule "
+                "runtime, run `hermes odyssey firewall` again and replace the rule "
                 f"(Remove-NetFirewallRule -Name '{RULE_NAME}'). Only the Private profile is opened, "
                 "so the Wi-Fi must be marked Private."
             ),
@@ -87,7 +87,7 @@ def instructions(
         if which("ufw"):
             return Instructions(
                 shell="a shell, as root",
-                command=f"ufw allow {port}/tcp comment 'Hermes Talaria'",
+                command=f"ufw allow {port}/tcp comment 'Hermes Odyssey'",
                 note="Needed only when `ufw status` (as root) reports active.",
             )
         if which("firewall-cmd"):

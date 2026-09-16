@@ -1,7 +1,7 @@
-"""Talaria's backend router, mounted by the dashboard at ``/api/plugins/hermes-talaria``.
+"""Odyssey's backend router, mounted by the dashboard at ``/api/plugins/hermes-odyssey``.
 
 The dashboard imports this file *standalone* — ``_mount_plugin_api_routes`` builds it with
-``spec_from_file_location`` under the synthetic name ``hermes_dashboard_plugin_hermes-talaria``,
+``spec_from_file_location`` under the synthetic name ``hermes_dashboard_plugin_hermes-odyssey``,
 with no package — so ``from .. import hr_devices`` is not available here. :func:`_sibling` bridges
 that: in the normal case the plugin package is already in ``sys.modules`` (``discover_plugins()``
 runs before ``start_server``), so its submodules are reused; only outside a Hermes process does it
@@ -27,7 +27,7 @@ from fastapi import APIRouter, HTTPException, Request
 _log = logging.getLogger(__name__)
 
 _PLUGIN_DIR = Path(__file__).resolve().parent.parent
-_PACKAGE_PREFIX = "hermes_plugins.hermes_talaria"
+_PACKAGE_PREFIX = "hermes_plugins.hermes_odyssey"
 
 
 def _plugin_package() -> Optional[ModuleType]:
@@ -113,7 +113,7 @@ def _require_device(request: Request):
     try:
         device = hr_devices.verify_token(_bearer(request))
     except hr_devices.DeviceStoreUnavailable as exc:
-        _log.warning("hermes-talaria: device store unavailable: %s", exc)
+        _log.warning("hermes-odyssey: device store unavailable: %s", exc)
         raise HTTPException(status_code=503, detail="Device store unavailable") from exc
     if device is None:
         raise _UNAUTHORIZED

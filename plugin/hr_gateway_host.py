@@ -40,7 +40,7 @@ import threading
 import time
 from typing import Any, Awaitable, Callable, Optional
 
-try:  # package import (``hermes_plugins.hermes_talaria``)
+try:  # package import (``hermes_plugins.hermes_odyssey``)
     from . import hr_listener, hr_routes, hr_wsauth
     from .hr_provider import PROVIDER_NAME
 except ImportError:  # standalone path load
@@ -100,7 +100,7 @@ def _pid_file_names_this_process() -> bool:
 
         return get_running_pid(cleanup_stale=False) == os.getpid()
     except Exception as exc:  # noqa: BLE001 - treat an unreadable record as "not yet"
-        _log.debug("hermes-talaria gateway host: pid check failed: %s", exc)
+        _log.debug("hermes-odyssey gateway host: pid check failed: %s", exc)
         return False
 
 
@@ -198,7 +198,7 @@ class GatewayHost:
             device = hr_listener._authenticate(scope)
         except hr_listener._Rejected as rejected:
             await send({"type": "websocket.close", "code": 1008})
-            _log.info("hermes-talaria gateway host: WS upgrade refused (%s)", rejected.detail)
+            _log.info("hermes-odyssey gateway host: WS upgrade refused (%s)", rejected.detail)
             return
         if scope["path"] != hr_wsauth.GATEWAY_WS_PATH:
             await send({"type": "websocket.close", "code": 1008})
@@ -227,7 +227,7 @@ class GatewayHost:
                 await asyncio.gather(revoked, return_exceptions=True)
                 exc = session.exception()
                 if exc is not None:
-                    _log.debug("hermes-talaria gateway host: WS session ended: %s", exc)
+                    _log.debug("hermes-odyssey gateway host: WS session ended: %s", exc)
                 return
             # Revoked mid-session. 1008 tells the phone this was policy, not a network fault. The
             # handler's pending receive then sees the disconnect and runs its own teardown, which
@@ -259,9 +259,9 @@ def arm() -> bool:
     if not is_gateway_process():
         return False
     if not hr_listener.enabled():
-        _log.info("hermes-talaria gateway host: disabled by %s", hr_listener.ENV_ENABLED)
+        _log.info("hermes-odyssey gateway host: disabled by %s", hr_listener.ENV_ENABLED)
         return False
-    _thread = threading.Thread(target=_run, name="hermes-talaria-host", daemon=True)
+    _thread = threading.Thread(target=_run, name="hermes-odyssey-host", daemon=True)
     _thread.start()
     return True
 
@@ -285,7 +285,7 @@ def _run() -> None:
     try:
         loop.run_until_complete(_serve())
     except Exception:  # noqa: BLE001 - the thread must end quietly, not take the gateway with it
-        _log.exception("hermes-talaria gateway host: stopped")
+        _log.exception("hermes-odyssey gateway host: stopped")
     finally:
         _loop = None
         loop.close()
@@ -297,9 +297,9 @@ async def _serve() -> None:
     try:
         if not await _wait_for_pid_claim():
             hr_listener.state.error = "gateway never claimed its pid file; not hosting"
-            _log.warning("hermes-talaria gateway host: %s", hr_listener.state.error)
+            _log.warning("hermes-odyssey gateway host: %s", hr_listener.state.error)
             return
-        _log.info("hermes-talaria gateway host: this is the gateway (pid %d); joining the host rule", os.getpid())
+        _log.info("hermes-odyssey gateway host: this is the gateway (pid %d); joining the host rule", os.getpid())
         await hr_listener._host_loop(0, GatewayHost())
     except asyncio.CancelledError:
         pass

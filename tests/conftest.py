@@ -6,7 +6,7 @@ the Hermes venv on the interpreter: the plugin imports ``hermes_cli.dashboard_au
 provider ABC and there is no useful way to stub it. The README gives the invocation.
 
 ``HERMES_HOME`` is redirected to a tmp directory for the whole session so nothing here can read or
-write the real device store at ``%LOCALAPPDATA%\\hermes\\talaria\\``.
+write the real device store at ``%LOCALAPPDATA%\\hermes\\odyssey\\``.
 """
 
 from __future__ import annotations
@@ -34,9 +34,9 @@ def _isolated_hermes_home(tmp_path_factory):
 
     home = tmp_path_factory.mktemp("hermes-home")
     (home / "config.yaml").write_text("", encoding="utf-8")
-    previous = {name: os.environ.get(name) for name in ("HERMES_HOME", "HERMES_TALARIA_LISTENER")}
+    previous = {name: os.environ.get(name) for name in ("HERMES_HOME", "HERMES_ODYSSEY_LISTENER")}
     os.environ["HERMES_HOME"] = str(home)
-    os.environ["HERMES_TALARIA_LISTENER"] = "0"
+    os.environ["HERMES_ODYSSEY_LISTENER"] = "0"
     yield home
     for name, value in previous.items():
         if value is None:
@@ -54,7 +54,7 @@ def _plugin_on_path():
 
 @pytest.fixture(scope="session", autouse=True)
 def _no_mdns_on_the_wire(_plugin_on_path):
-    """``hermes talaria pair`` and ``status`` send one mDNS query to the LAN as a self-check. A test
+    """``hermes odyssey pair`` and ``status`` send one mDNS query to the LAN as a self-check. A test
     suite must not, so the resolver answers as this machine's responder does. The real function
     stays reachable as ``_real_resolve`` for the one test that exercises its no-op path."""
     hr_mdns = importlib.import_module("hr_mdns")
@@ -77,7 +77,7 @@ def hr_devices(_plugin_on_path):
 def api(_plugin_on_path):
     """``dashboard/api.py``, loaded by path exactly as the dashboard's mounter loads it."""
     path = PLUGIN_DIR / "dashboard" / "api.py"
-    spec = importlib.util.spec_from_file_location("hermes_dashboard_plugin_hermes-talaria", path)
+    spec = importlib.util.spec_from_file_location("hermes_dashboard_plugin_hermes-odyssey", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
