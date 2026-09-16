@@ -322,6 +322,15 @@ should read as "Odyssey for Hermes Agent", not as an official app. Proven: 180 p
 paths scrubbed; the Android repo is private as `Pawls/hermes-odyssey-android`. Everything essential
 stays free in both halves.
 
+Status 2026-09-16 (published): both repos are on GitHub, and every commit in both carries the
+noreply author (now also the global `user.email`). The scrub changed one QR golden's payload, so its
+digest was re-verified the way `tests/test_qr.py` demands: an OpenCV decode of the new symbol
+round-tripped exactly, run in a throwaway `uv` environment, not the Hermes venv. The live cutover is
+done: `config.yaml` and the junction say `hermes-odyssey`, the gateway restart (pid 32580) moved
+`talaria/` to `odyssey/` with the same certificate, and device `02112da5c040` is live on the renamed
+app build with no re-scan. Proven: `hermes plugins install Pawls/hermes-odyssey/plugin --ref <sha>`
+into a scratch home installs with no scan finding. Remaining for V8: the catalog PR and the APK story.
+
 ## Rejected
 
 - **Retry on 4001 as the fix for the lost message.** The refusal on record was 4090, which no retry
