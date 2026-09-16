@@ -52,6 +52,19 @@ def _plugin_on_path():
         sys.path.insert(0, str(PLUGIN_DIR))
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _no_mdns_on_the_wire(_plugin_on_path):
+    """``hermes remote pair`` and ``status`` send one mDNS query to the LAN as a self-check. A test
+    suite must not, so the resolver answers as this machine's responder does. The real function
+    stays reachable as ``_real_resolve`` for the one test that exercises its no-op path."""
+    hr_mdns = importlib.import_module("hr_mdns")
+    hr_mdns._real_resolve = hr_mdns.resolve
+    hr_mdns.resolve = lambda name, **_: ["192.168.1.50"] if name else []
+    yield
+    hr_mdns.resolve = hr_mdns._real_resolve
+    del hr_mdns._real_resolve
+
+
 @pytest.fixture()
 def hr_devices(_plugin_on_path):
     """The device store module, with its throttle state reset between tests."""

@@ -45,29 +45,36 @@ class PairingUri:
     token: str
     name: str
     version: int = PAIRING_VERSION
+    #: ``<hostname>.local``, for the phone to resolve over mDNS when every host is silent. Optional
+    #: (``m``): a v1 client that predates it ignores it, and an empty one means "not offered".
+    mdns_name: str = ""
 
 
-def build(*, hosts: List[str], port: int, fingerprint: str, token: str, name: str) -> str:
+def build(
+    *, hosts: List[str], port: int, fingerprint: str, token: str, name: str, mdns_name: str = ""
+) -> str:
     """The string the QR encodes.
 
     A URI rather than JSON or a colon-separated list: it is self-describing, a generic scanner app
     shows something meaningful, and ``Uri.parse`` on Android reads it with no custom code.
 
-    The host list is the answer to DHCP. The machine may have several interfaces and its address
-    will change, so the client gets every candidate and tries them in order. It is not a security
-    boundary — the certificate pin is — so nothing is lost by being generous with it.
+    The host list is the first answer to DHCP, and ``mdns_name`` the second. The machine may have
+    several interfaces and its address will change, so the client gets every candidate and tries
+    them in order; when none answers it asks the LAN for the name (:mod:`hr_mdns`) and tries what
+    comes back. Neither is a security boundary — the certificate pin is — so nothing is lost by
+    being generous with either.
     """
-    query = urlencode(
-        {
-            "v": str(PAIRING_VERSION),
-            "h": ",".join(hosts),
-            "p": str(port),
-            "f": fingerprint,
-            "t": token,
-            "n": name,
-        }
-    )
-    return _PREFIX + query
+    fields = {
+        "v": str(PAIRING_VERSION),
+        "h": ",".join(hosts),
+        "p": str(port),
+        "f": fingerprint,
+        "t": token,
+        "n": name,
+    }
+    if mdns_name:
+        fields["m"] = mdns_name
+    return _PREFIX + urlencode(fields)
 
 
 def parse(text: str) -> Optional[PairingUri]:
@@ -96,7 +103,12 @@ def parse(text: str) -> Optional[PairingUri]:
     ):
         return None
     return PairingUri(
-        hosts=hosts, port=port, fingerprint=fingerprint, token=token, name=one("n")
+        hosts=hosts,
+        port=port,
+        fingerprint=fingerprint,
+        token=token,
+        name=one("n"),
+        mdns_name=one("m"),
     )
 
 

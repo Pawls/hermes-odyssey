@@ -109,6 +109,28 @@ def test_the_token_is_never_printed_in_the_clear(run):
     assert hr_pairing.parse(piped.strip()).token not in drawn
 
 
+def test_the_code_carries_the_local_name_and_says_whether_it_answers(run, monkeypatch):
+    hr_pairing = importlib.import_module("hr_pairing")
+    hr_mdns = importlib.import_module("hr_mdns")
+    monkeypatch.setattr(hr_mdns, "local_name", lambda hostname=None: "pawl-desktop.local")
+    monkeypatch.setattr(hr_pairing, "candidate_hosts", lambda: ["192.168.1.50", "127.0.0.1"])
+
+    piped = run("pair", "--uri-only").out
+    assert hr_pairing.parse(piped.strip()).mdns_name == "pawl-desktop.local"
+
+    drawn = run("pair").out
+    assert "pawl-desktop.local answers (192.168.1.50)" in drawn
+
+
+def test_a_silent_responder_is_named_as_the_reason_a_moved_address_needs_re_pairing(run, monkeypatch):
+    hr_mdns = importlib.import_module("hr_mdns")
+    monkeypatch.setattr(hr_mdns, "local_name", lambda hostname=None: "pawl-desktop.local")
+    monkeypatch.setattr(hr_mdns, "resolve", lambda name, **_: [])
+
+    assert "not answering mDNS" in run("pair").out
+    assert "not answering mDNS" in run("status").out
+
+
 def test_each_pairing_mints_a_distinct_device(run, hr_devices):
     run("pair", "--label", "one")
     run("pair", "--label", "two")

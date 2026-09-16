@@ -176,7 +176,9 @@ laptop; being able to answer `approval.request` from another room is not.
   the first thing worth adding once the app works.
 - **iOS.** Unbuildable from Windows; Xcode is macOS-only. Keep `shared` written so an iOS
   shell stays an additive slice.
-- **mDNS.** Until the desktop advertises itself, a moved desktop means re-scanning the QR.
+- ~~**mDNS.**~~ — done as V6 of `.agents/plans/hermes-talaria-plan.md`. The desktop never
+  advertises anything: the code carries `<hostname>.local` and the phone resolves it with one
+  legacy unicast mDNS query, which the OS responder on every platform answers unaided.
 
 ---
 

@@ -34,11 +34,12 @@ from typing import Callable, List, Optional
 from urllib.parse import urlencode
 
 try:  # package import (``hermes_plugins.hermes_remote``)
-    from . import hr_devices, hr_identity, hr_listener, hr_pairing, hr_qr, hr_routes
+    from . import hr_devices, hr_identity, hr_listener, hr_mdns, hr_pairing, hr_qr, hr_routes
 except ImportError:  # standalone path load
     import hr_devices  # type: ignore[no-redef]
     import hr_identity  # type: ignore[no-redef]
     import hr_listener  # type: ignore[no-redef]
+    import hr_mdns  # type: ignore[no-redef]
     import hr_pairing  # type: ignore[no-redef]
     import hr_qr  # type: ignore[no-redef]
     import hr_routes  # type: ignore[no-redef]
@@ -171,12 +172,14 @@ def _pair(args) -> int:
     except hr_devices.DeviceStoreUnavailable as exc:
         return _err(f"Could not write the device store: {exc}")
 
+    mdns_name = hr_mdns.local_name()
     uri = hr_pairing.build(
         hosts=hosts,
         port=port,
         fingerprint=identity.fingerprint_b64,
         token=token,
         name=hr_pairing.machine_name(),
+        mdns_name=mdns_name,
     )
 
     if args.uri_only:
@@ -194,6 +197,7 @@ def _pair(args) -> int:
     _out(f"  Device    {device.label}  ({device.id})")
     _out(f"  Listener  https://{hosts[0]}:{port}" + ("" if running else "   (not running yet)"))
     _out(f"  Addresses {', '.join(hosts)}")
+    _out(f"  Discovery {_discovery(mdns_name, hosts)}")
     _out("  Certificate SHA-256")
     _out(f"            {_grouped_fingerprint(identity.fingerprint_hex[:32])}")
     _out(f"            {_grouped_fingerprint(identity.fingerprint_hex[32:])}")
@@ -211,6 +215,28 @@ def _pair(args) -> int:
         _out("  (`hermes gateway start`). None of them is hosting it right now.")
         _out()
     return 0
+
+
+def _discovery(mdns_name: str, hosts: List[str]) -> str:
+    """One line on whether this machine answers for ``<hostname>.local``, which is what lets a
+    paired phone find it again after the address moves.
+
+    The check is the phone's own query, sent from the LAN adapter so the OS responder answers
+    with the LAN address rather than whichever interface the loopback copy happened to take.
+    Nothing here can fix a responder that is off; the line says so and names the consequence.
+    """
+    if not mdns_name:
+        return "no host name to offer; a moved address means pairing again"
+    lan = next((h for h in hosts if h != "127.0.0.1"), None)
+    answered = hr_mdns.resolve(mdns_name, interface=lan)
+    if not answered:
+        return (
+            f"{mdns_name} is in the code, but this machine is not answering mDNS for it;"
+            " a moved address means pairing again"
+        )
+    if lan and lan not in answered:
+        return f"{mdns_name} answers with {', '.join(answered)}, not {lan}; check which adapter is the LAN"
+    return f"{mdns_name} answers ({', '.join(answered)}); the phone can follow a moved address"
 
 
 # ---- status ----------------------------------------------------------------
@@ -286,6 +312,7 @@ def _status(args) -> int:
             _out(line)
     if not hr_listener.enabled():
         _out(f"               disabled by {hr_listener.ENV_ENABLED}")
+    _out(f"  Discovery    {_discovery(hr_mdns.local_name(), hr_pairing.candidate_hosts())}")
 
     _out()
     try:

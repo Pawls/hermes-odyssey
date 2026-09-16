@@ -47,6 +47,18 @@ def test_the_wire_format_is_the_one_the_app_parses(hr_pairing):
     assert keys == ["v", "h", "p", "f", "t", "n"]
 
 
+def test_the_mdns_name_is_optional_and_does_not_bump_the_version(hr_pairing):
+    """A v1 phone that predates ``m`` must still read the code, so it is a seventh key and not a
+    v2. Absent means "not offered", never a refusal."""
+    without = hr_pairing.build(**FIELDS)
+    assert "m=" not in without and hr_pairing.parse(without).mdns_name == ""
+
+    with_name = hr_pairing.build(**FIELDS, mdns_name="pawl-desktop.local")
+    assert with_name.startswith(without + "&m=")
+    assert hr_pairing.parse(with_name).mdns_name == "pawl-desktop.local"
+    assert hr_pairing.parse(with_name).version == 1
+
+
 def test_a_machine_name_with_awkward_characters_is_escaped(hr_pairing):
     uri = hr_pairing.build(**{**FIELDS, "name": "Paul's PC & laptop"})
     assert " " not in uri and "&laptop" not in uri

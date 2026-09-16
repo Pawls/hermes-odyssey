@@ -93,6 +93,15 @@ The code in the QR **is** the credential, and unlike PawlRemote it is not a shor
 stays valid until the device is revoked. Clear the screen once the phone has it, and treat a
 screenshot of it as a password.
 
+The code also carries this machine's `<hostname>.local`. When the stored address stops answering,
+the phone asks the LAN for that name over mDNS and tries what comes back, so a DHCP lease that
+moves no longer means pairing again. Nothing is advertised and nothing is installed for this: the
+OS already answers for its own name (Windows' `Dnscache`, macOS' `mDNSResponder`, Avahi), and the
+`Discovery` line under the code, and in `status`, reports whether it does here. A spoofed answer
+buys an attacker one probe that the certificate pin then refuses; discovery decides what to try,
+never what to believe. A phone paired before this landed has no name stored and walks its list as
+before; pair it again to give it one.
+
 ## Sitting beside the phone in a terminal
 
 A plain `hermes --tui` spawns a gateway of its own, and that gateway then owns any session it
@@ -208,6 +217,7 @@ completed, and the bearer gate answering a request with no credential. Every ear
 on this host, where traffic to a local interface never traverses the firewall at all, so this is
 the first proof the allow rule matches anything.
 
-One thing to keep pinned. The pairing code carries the desktop's address, so give this machine a
-DHCP **reservation** rather than a lease. A lease that moves strands every paired phone with no
-visible cause, and re-pairing is the only cure until the mDNS item in Phase 4 lands.
+The address is no longer the only thing the phone has. The code carries `<hostname>.local` too,
+and a phone whose stored address has gone silent resolves it over mDNS (see *Pairing a phone*).
+This machine keeps its DHCP reservation anyway: a name that resolves is the cure for a moved
+address, a reservation is what stops it moving, and the two cost nothing together.

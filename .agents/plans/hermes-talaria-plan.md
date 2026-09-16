@@ -217,6 +217,35 @@ session the TUI shows).
 Replace the address baked into the pairing payload by `hr_pairing.build`, so the QR survives a moved
 DHCP lease. The reservation on the gateway is the cheap version and stays until this lands.
 
+Status 2026-09-15: shipped, with no service advertised and no dependency added on either side.
+The first design question was whether the plugin should run a DNS-SD responder (`zeroconf` is
+not in the Hermes venv, and installing into it is not this project's to do). Measured before
+deciding: this machine's own `Dnscache` already answers a legacy unicast mDNS query for
+`pawl-desktop.local` with an A record, in under a millisecond, and macOS and Avahi do the same
+for their hosts. The phone is not browsing for unknown desktops; it holds the port, the pin and
+the token and is missing only the address, so a hostname lookup is the whole problem. Hence:
+
+- The code gains an optional `m=<hostname>.local` (`hr_pairing.build`, no version bump; a
+  v1 phone ignores it). `hr_mdns.py` builds the query and reads the answer, and `hermes remote
+  pair` and `status` print a `Discovery` line from a self-check.
+- The phone (`Mdns.kt`, `Mdns.jvm.kt`, HermesRemote) resolves the name with the same packet over
+  a plain UDP socket: sent to the group, answered by unicast to the ephemeral port (RFC 6762
+  §6.7), so no multicast lock and no new permission. `findHost` asks the LAN after `lastGoodHost`
+  is silent and before the stale stored list, and the address that passes the pin becomes
+  `lastGoodHost`. A `Desktop` stored before the field has `mdnsName = null` and walks its list
+  as before; the phone must be paired again to gain the name.
+- Found on the way: a machine querying *itself* gets the answer from whichever adapter the OS
+  sent the loopback copy through, here Tailscale's link-local address. Both resolvers take a
+  source address for that case; a phone leaves it unset and the query takes the Wi-Fi.
+
+Proven: `hermes remote status` against the live gateway host prints `pawl-desktop.local answers
+(192.168.1.50)`, and the opt-in `MdnsLiveTest` (`HERMES_LIVE_MDNS=pawl-desktop.local
+HERMES_LIVE_MDNS_FROM=192.168.1.50`) ran the JVM resolver the phone uses and got the same
+address. Nineteen new plugin tests (suite at 167) and eleven shared tests (79). Not proven: a
+real phone crossing a moved lease, which needs a re-pair and a lease change, and a phone with a
+VPN that captures multicast, where the query may leave by the wrong interface. No phone was
+attached, so the debug build is not installed.
+
 ### V7 — Rename to hermes-talaria · Opus 5 / medium
 
 Across `plugin.yaml`, `dashboard/manifest.json`, `hr_routes.PLUGIN_NAME`, `plugins.enabled`, the
