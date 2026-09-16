@@ -12,7 +12,7 @@ in an editor panel that anyone walking past could photograph. Here pairing happe
 that a person is already sitting at, and a redemption round trip would mean an unauthenticated
 route on a listener whose whole point is that it has none. The cost is that the code on screen *is*
 the credential for as long as it is on screen, and a screenshot of it stays valid until the device
-is revoked. ``hermes remote revoke`` is the remedy, and ``hermes remote pair`` says so.
+is revoked. ``hermes talaria revoke`` is the remedy, and ``hermes talaria pair`` says so.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from urllib.parse import parse_qs, urlencode
 PAIRING_VERSION = 1
 
 #: The URI scheme. Registered as an Android deep link later, so a scan can open the app directly.
-SCHEME = "hermes-remote"
+SCHEME = "hermes-talaria"
 _PREFIX = f"{SCHEME}://pair?"
 
 #: 32 bytes of SHA-256 is 43 base64url characters with the padding stripped. A shorter one means a

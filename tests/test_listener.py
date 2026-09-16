@@ -314,7 +314,7 @@ def test_a_request_body_and_the_response_are_relayed_intact(hr_listener, paired)
 
         async with httpx.AsyncClient() as client:
             return await client.post(
-                pair.base_url + "/api/plugins/hermes-remote/ws-ticket",
+                pair.base_url + "/api/plugins/hermes-talaria/ws-ticket",
                 headers=_auth(paired),
                 content=b'{"hello":"world"}',
             )

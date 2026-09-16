@@ -1,4 +1,4 @@
-# hermes-remote
+# hermes-talaria
 
 The desktop half of a phone client for a live [Hermes](https://github.com/NousResearch/hermes-agent)
 session on the LAN. The phone half is `%USERPROFILE%\AndroidStudioProjects\HermesRemote`.
@@ -16,14 +16,30 @@ Hermes discovers plugins in `$HERMES_HOME/plugins/`, which on this machine is
 directory junction:
 
 ```
-mklink /J "%LOCALAPPDATA%\hermes\plugins\hermes-remote" "%USERPROFILE%\source\repos\hermes-remote\plugin"
+mklink /J "%LOCALAPPDATA%\hermes\plugins\hermes-talaria" "%USERPROFILE%\source\repos\hermes-remote\plugin"
 ```
 
 No administrator rights needed for a junction.
 
 A user plugin's Python is imported only when its name is in `plugins.enabled` in
-`config.yaml` (GHSA-mcfc-hp25-cjv7), so the junction alone does nothing. `hermes-remote` is
+`config.yaml` (GHSA-mcfc-hp25-cjv7), so the junction alone does nothing. `hermes-talaria` is
 in that list.
+
+### Renamed from hermes-remote
+
+Both halves must move together, because the phone reaches `/api/plugins/hermes-talaria` and scans
+`hermes-talaria://pair` codes, and an older build knows neither.
+
+1. Replace the junction: `rmdir "%LOCALAPPDATA%\hermes\plugins\hermes-remote"`, then the `mklink`
+   above. The directory name is the import name, so the old junction would load a second copy.
+2. In `config.yaml`, swap `hermes-remote` for `hermes-talaria` under `plugins.enabled`.
+3. Restart every Hermes process (dashboard, desktop, gateway). The first one to load the plugin
+   moves `%LOCALAPPDATA%\hermes\remote\` to `talaria\`, so device tokens and the certificate
+   survive and a paired phone needs only the new app build, not a new scan.
+4. The CLI is now `hermes talaria`, and the environment variables are `HERMES_TALARIA_PORT`,
+   `HERMES_TALARIA_HOST` and `HERMES_TALARIA_LISTENER`.
+
+A firewall rule created under the old name keeps working; it matches by port and program.
 
 ## Layout
 
@@ -33,7 +49,7 @@ in that list.
 | `plugin/hr_identity.py` | the self-signed P-256 certificate the phone pins |
 | `plugin/hr_listener.py` | the TLS reverse proxy in front of loopback 9119, and the rule for which process hosts it |
 | `plugin/hr_gateway_host.py` | the same socket answered in-process inside `hermes gateway run`, for when no window is open |
-| `plugin/hr_cli.py`, `hr_qr.py`, `hr_pairing.py` | `hermes remote`, its QR encoder, and the payload |
+| `plugin/hr_cli.py`, `hr_qr.py`, `hr_pairing.py` | `hermes talaria`, its QR encoder, and the payload |
 | `plugin/dashboard/` | what the dashboard imports: `manifest.json` + `api.py` |
 | `tests/` | run with the Hermes venv; see below |
 | `docs/PLAN.md` | the plan, the protocol findings, the risks |
@@ -48,7 +64,7 @@ Hermes interpreter rather than a venv of their own:
 ```
 
 They redirect `HERMES_HOME` and the device store to temp directories, so they never read or
-write the real `%LOCALAPPDATA%\hermes\remote\`.
+write the real `%LOCALAPPDATA%\hermes\talaria\`.
 
 ## Security rules
 
@@ -79,10 +95,10 @@ Two corollaries specific to Hermes, both load-bearing:
 ## Pairing a phone
 
 ```
-hermes remote pair --label "Pixel 9"
-hermes remote status
-hermes remote revoke <id>
-hermes remote attach [--resume <id>]
+hermes talaria pair --label "Pixel 9"
+hermes talaria status
+hermes talaria revoke <id>
+hermes talaria attach [--resume <id>]
 ```
 
 `pair` draws a QR in the terminal and prints the certificate fingerprint underneath it. Compare
@@ -106,7 +122,7 @@ before; pair it again to give it one.
 
 A plain `hermes --tui` spawns a gateway of its own, and that gateway then owns any session it
 opens: a phone turn into it is refused with 4090, because Hermes allows one live owner per
-session. `hermes remote attach` launches the same Ink TUI in its attach mode instead, pointed at
+session. `hermes talaria attach` launches the same Ink TUI in its attach mode instead, pointed at
 `/api/ws` on whichever process is hosting the listener, so the terminal is a second transport on
 the phone's process and both stream the same turn. `--resume <id>` opens a stored session; without
 it the TUI starts a new one, which the phone can then resume.
@@ -133,10 +149,10 @@ Two processes mount the dashboard router and therefore arm this listener: `herme
 has to be the one whose window you are looking at: a phone can stream into a live session only
 from inside the process that owns it, because Hermes fans events out across the transports of one
 process and allows one live owner per session across processes. So the desktop app outranks the
-dashboard. The holder records itself in `remote/listener.json`; a higher-ranked candidate writes
-`remote/listener-claim.json`, the holder yields on its next sweep, the claimant binds on its next
+dashboard. The holder records itself in `talaria/listener.json`; a higher-ranked candidate writes
+`talaria/listener-claim.json`, the holder yields on its next sweep, the claimant binds on its next
 retry, and the phone's reconnect lands it in the new host. Opening or closing the desktop app
-therefore moves the phone within a few seconds. `hermes remote status` says which process is
+therefore moves the phone within a few seconds. `hermes talaria status` says which process is
 hosting and, while a handover is pending, which one is waiting.
 
 With no window open at all, the always-on `hermes gateway run` hosts it (`hr_gateway_host.py`).
@@ -154,9 +170,9 @@ platform adapters for it.
 
 | variable | default | what |
 | --- | --- | --- |
-| `HERMES_REMOTE_PORT` | `9443` | TLS port |
-| `HERMES_REMOTE_HOST` | `0.0.0.0` | bind address |
-| `HERMES_REMOTE_LISTENER` | on | set to `0` / `off` to load the plugin without opening a socket |
+| `HERMES_TALARIA_PORT` | `9443` | TLS port |
+| `HERMES_TALARIA_HOST` | `0.0.0.0` | bind address |
+| `HERMES_TALARIA_LISTENER` | on | set to `0` / `off` to load the plugin without opening a socket |
 
 The listener authenticates every request and every upgrade against the device store before
 forwarding anything. That is not defence in depth, it is the only defence: on a loopback bind the
@@ -165,7 +181,7 @@ even a liveness one — the TLS handshake already tells a phone which machine an
 
 An open WebSocket is checked too, and separately, because its bearer was only ever on the upgrade.
 The listener holds the device id beside each proxied socket and re-reads the device store every
-five seconds, closing with 1008 any socket whose device has been revoked. `hermes remote revoke`
+five seconds, closing with 1008 any socket whose device has been revoked. `hermes talaria revoke`
 therefore ends a live session rather than only the next request. The store is the channel because
 the CLI runs in its own process; an unreadable store closes nothing, since a disk error that
 answered "no devices are paired" would drop every session on the machine.
@@ -181,8 +197,8 @@ This is what is installed here instead of answering the prompt, and it is narrow
 prompt would have created, which allows the whole interpreter on every inbound port:
 
 ```powershell
-New-NetFirewallRule -Name 'HermesRemoteListener' `
-    -DisplayName 'Hermes Remote listener (TLS 9443)' `
+New-NetFirewallRule -Name 'HermesTalariaListener' `
+    -DisplayName 'Hermes Talaria listener (TLS 9443)' `
     -Direction Inbound -Action Allow -Enabled True -Profile Private `
     -Protocol TCP -LocalPort 9443 -Program '<the runtime python.exe>'
 ```
@@ -194,21 +210,21 @@ update, check this rule's `Program` first.
 ## Status
 
 Phase 1 is done: the plugin loads, the device store works, the router is mounted and
-bearer-gated, the TLS listener proxies HTTP and WebSocket traffic, and `hermes remote` pairs,
+bearer-gated, the TLS listener proxies HTTP and WebSocket traffic, and `hermes talaria` pairs,
 reports and revokes. 116 tests pass, and the listener has now been seen coming up inside a real
 `hermes dashboard` run and refusing an anonymous request over TLS (`docs/PLAN.md` §5.8).
 
 Phases 2 and 3 are done in `%USERPROFILE%\AndroidStudioProjects\HermesRemote`: the shared Kotlin
 protocol, and an Android app on top of it. An emulator has paired over the LAN address, listed the
 real session store, resumed a session and rendered its history, survived the desktop restarting
-underneath it, and refused itself after `hermes remote revoke`. See `docs/PLAN.md` §5.9–§5.11.
+underneath it, and refused itself after `hermes talaria revoke`. See `docs/PLAN.md` §5.9–§5.11.
 
 The `0.0.0.0` bind is proven: `https://192.168.1.50:9443` answers with TLS 1.3, the exact leaf the
 phone pins, and `401` with no bearer.
 
 Both Phase 4 blockers are now closed (`docs/PLAN.md` §5.12). Revocation ends a live socket:
 against a real dashboard, an idle authenticated WebSocket was closed with 1008 five seconds after
-`hermes remote revoke`. And the two inbound `Block` rules are gone, replaced by the scoped allow
+`hermes talaria revoke`. And the two inbound `Block` rules are gone, replaced by the scoped allow
 above, so nothing on this machine blocks inbound 9443 any more.
 
 A **physical** phone has now reached it. On the Wi-Fi, with no app installed, its browser opened

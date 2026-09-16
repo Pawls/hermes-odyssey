@@ -1,4 +1,4 @@
-"""``hermes remote`` — pair a phone, see what is paired, take it away again, or sit beside it.
+"""``hermes talaria`` — pair a phone, see what is paired, take it away again, or sit beside it.
 
 Registered through ``ctx.register_cli_command``, which wires an argparse subtree at startup and
 needs no change to ``hermes_cli/main.py``. The handler signature is ``fn(args) -> int``; the
@@ -17,7 +17,7 @@ same live session. The terminal is paired as a device of its own for the duratio
 listener's gate is the one thing that admits a socket on every host - dashboard, desktop app or
 gateway - and Node's ``WebSocket`` can carry a credential only in the URL.
 
-This module must stay importable without FastAPI, uvicorn or an event loop. ``hermes remote`` runs
+This module must stay importable without FastAPI, uvicorn or an event loop. ``hermes talaria`` runs
 in the plain CLI process, which has no dashboard in it, and a heavyweight import here would be
 paid by every ``hermes`` invocation that touches plugin CLI discovery.
 """
@@ -33,7 +33,7 @@ import time
 from typing import Callable, List, Optional
 from urllib.parse import urlencode
 
-try:  # package import (``hermes_plugins.hermes_remote``)
+try:  # package import (``hermes_plugins.hermes_talaria``)
     from . import hr_devices, hr_identity, hr_listener, hr_mdns, hr_pairing, hr_qr, hr_routes
 except ImportError:  # standalone path load
     import hr_devices  # type: ignore[no-redef]
@@ -44,15 +44,15 @@ except ImportError:  # standalone path load
     import hr_qr  # type: ignore[no-redef]
     import hr_routes  # type: ignore[no-redef]
 
-COMMAND_NAME = "remote"
-COMMAND_HELP = "Pair a phone with this Hermes session (HermesRemote)"
+COMMAND_NAME = "talaria"
+COMMAND_HELP = "Pair a phone with this Hermes session (Talaria)"
 COMMAND_DESCRIPTION = (
-    "HermesRemote pairs an Android client with the dashboard on this machine over a TLS "
+    "Talaria pairs an Android client with the dashboard on this machine over a TLS "
     "listener whose certificate the phone pins.\n\n"
-    "  hermes remote pair --label 'Pixel 9'   show a pairing QR\n"
-    "  hermes remote status                   what is paired, and is the listener up\n"
-    "  hermes remote revoke <id>              end one device's access\n"
-    "  hermes remote attach [--resume <id>]   open the TUI on the session the phone sees"
+    "  hermes talaria pair --label 'Pixel 9'   show a pairing QR\n"
+    "  hermes talaria status                   what is paired, and is the listener up\n"
+    "  hermes talaria revoke <id>              end one device's access\n"
+    "  hermes talaria attach [--resume <id>]   open the TUI on the session the phone sees"
 )
 
 #: Label of the device ``attach`` pairs for the terminal. The pid is in it so a record left by a
@@ -70,12 +70,12 @@ LAUNCH: Optional[Callable[[Optional[str]], None]] = None
 
 
 def setup(parser) -> None:
-    """Build the ``hermes remote`` subtree. Called by the dashboard's plugin CLI loader."""
+    """Build the ``hermes talaria`` subtree. Called by the dashboard's plugin CLI loader."""
     sub = parser.add_subparsers(dest="remote_command", metavar="<command>")
 
     pair = sub.add_parser("pair", help="Show a pairing QR for a new device")
     pair.add_argument(
-        "--label", default="", help="What to call this phone in `hermes remote status`"
+        "--label", default="", help="What to call this phone in `hermes talaria status`"
     )
     pair.add_argument(
         "--light",
@@ -208,7 +208,7 @@ def _pair(args) -> int:
     _out()
     _out("  This code IS the credential. It stays valid until you revoke the device, so")
     _out("  clear the screen once the phone has it, and treat a screenshot of it as a")
-    _out(f"  password. To end it:  hermes remote revoke {device.id}")
+    _out(f"  password. To end it:  hermes talaria revoke {device.id}")
     _out()
     if not running:
         _out("  The listener starts with the desktop app, `hermes dashboard`, or the gateway")
@@ -284,11 +284,11 @@ def _host_lines(runtime: dict) -> list:
 def _status(args) -> int:
     identity = hr_identity.existing_identity()
     _out()
-    _out(f"HermesRemote {hr_routes.PLUGIN_VERSION}")
+    _out(f"Talaria {hr_routes.PLUGIN_VERSION}")
     _out()
 
     if identity is None:
-        _out("  Certificate  none yet — `hermes remote pair` creates it")
+        _out("  Certificate  none yet — `hermes talaria pair` creates it")
     else:
         _out(f"  Certificate  SHA-256 {_grouped_fingerprint(identity.fingerprint_hex[:32])}")
         _out(f"                       {_grouped_fingerprint(identity.fingerprint_hex[32:])}")
@@ -322,7 +322,7 @@ def _status(args) -> int:
 
     shown = [d for d in devices if args.all or not d.revoked]
     if not shown:
-        _out("  No paired devices. `hermes remote pair` shows a code.")
+        _out("  No paired devices. `hermes talaria pair` shows a code.")
         _out()
         return 0
 
@@ -360,11 +360,11 @@ def _revoke(args) -> int:
         return 0
 
     if not args.device:
-        return _err("Which device? `hermes remote status` lists them, or use --all.")
+        return _err("Which device? `hermes talaria status` lists them, or use --all.")
 
     device_id = _resolve(devices, args.device.strip())
     if device_id is None:
-        return _err(f"No single live device matches {args.device!r}. See `hermes remote status`.")
+        return _err(f"No single live device matches {args.device!r}. See `hermes talaria status`.")
     if hr_devices.revoke_device(device_id):
         _out(f"Revoked {device_id}. Its token stops working now, and a session it has open closes")
         _out("within a few seconds.")
@@ -406,7 +406,7 @@ def _attach(args) -> int:
         )
     identity = hr_identity.existing_identity()
     if identity is None:
-        return _err("There is no listener certificate on disk; `hermes remote pair` creates it.")
+        return _err("There is no listener certificate on disk; `hermes talaria pair` creates it.")
     port = int(running.get("port") or 0)
     probe = _probe(str(running.get("host") or ""), port, identity.der)
     if not probe.startswith("listening"):

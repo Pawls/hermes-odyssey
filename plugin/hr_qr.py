@@ -3,7 +3,7 @@
 A line-for-line port of PawlRemote's ``vscode-pawl/src/remote/qr.ts``, for the same reason it
 existed there: this is the only thing in the feature that would introduce a dependency, and the
 Hermes venv is not ours to add packages to — ``hermes update`` owns it. What it encodes is a
-``hermes-remote://pair?...`` URI of roughly 150-250 characters, which is why the tables stop where
+``hermes-talaria://pair?...`` URI of roughly 150-250 characters, which is why the tables stop where
 they do: **error-correction level M, versions 1-20**. Version 20 holds 669 data codewords, several
 times the longest payload :mod:`hr_pairing` can build, so the bound is headroom rather than a limit
 anyone will meet. A payload that does not fit raises instead of silently dropping to a lower

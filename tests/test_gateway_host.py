@@ -145,7 +145,7 @@ def test_health_and_ws_ticket_are_answered_in_direct_mode(host, paired):
     assert health.status_code == 200
     assert health.json() == {
         "ok": True,
-        "plugin": "hermes-remote",
+        "plugin": "hermes-talaria",
         "version": importlib.import_module("hr_routes").PLUGIN_VERSION,
         "mode": "direct",
         "device": {"id": device.id, "label": "Pixel 8"},
@@ -191,13 +191,13 @@ def test_the_handler_gets_a_starlette_socket_and_the_devices_identity(host, pair
             return opening, await ws.recv()
 
     opening, echoed = _drive(host, scenario)
-    assert opening["identity"] == {"user_id": f"device:{device.id}", "provider": "hermes-remote-device"}
+    assert opening["identity"] == {"user_id": f"device:{device.id}", "provider": "hermes-talaria-device"}
     assert opening["peer"] == "127.0.0.1"
     assert echoed == 'echo:{"method":"gateway.ping"}'
 
 
 def test_the_terminals_query_credential_is_admitted_here_too(host, paired, monkeypatch):
-    """``hermes remote attach`` against a gateway host: same URL shape, same gate, same identity."""
+    """``hermes talaria attach`` against a gateway host: same URL shape, same gate, same identity."""
     device, token = paired
     monkeypatch.setattr(host, "HANDLE_WS", _echo)
 
@@ -208,7 +208,7 @@ def test_the_terminals_query_credential_is_admitted_here_too(host, paired, monke
             return json.loads(await ws.recv())
 
     opening = _drive(host, scenario)
-    assert opening["identity"] == {"user_id": f"device:{device.id}", "provider": "hermes-remote-device"}
+    assert opening["identity"] == {"user_id": f"device:{device.id}", "provider": "hermes-talaria-device"}
 
 
 def test_only_the_gateway_path_is_a_socket(host, paired, monkeypatch):
@@ -266,9 +266,9 @@ def test_armed_it_hosts_on_its_own_thread_and_disarms_cleanly(host, paired, monk
     _device, token = paired
     listener = importlib.import_module("hr_listener")
     port = _free_port()
-    monkeypatch.setenv("HERMES_REMOTE_LISTENER", "1")
-    monkeypatch.setenv("HERMES_REMOTE_HOST", "127.0.0.1")
-    monkeypatch.setenv("HERMES_REMOTE_PORT", str(port))
+    monkeypatch.setenv("HERMES_TALARIA_LISTENER", "1")
+    monkeypatch.setenv("HERMES_TALARIA_HOST", "127.0.0.1")
+    monkeypatch.setenv("HERMES_TALARIA_PORT", str(port))
     monkeypatch.setattr(host, "is_gateway_process", lambda: True)
     monkeypatch.setattr(host, "_pid_file_names_this_process", lambda: True)
     monkeypatch.setattr(host, "_PID_POLL_SECONDS", 0.05)
@@ -303,7 +303,7 @@ def test_armed_it_hosts_on_its_own_thread_and_disarms_cleanly(host, paired, monk
 
 def test_a_process_the_pid_file_never_names_does_not_host(host, monkeypatch):
     listener = importlib.import_module("hr_listener")
-    monkeypatch.setenv("HERMES_REMOTE_LISTENER", "1")
+    monkeypatch.setenv("HERMES_TALARIA_LISTENER", "1")
     monkeypatch.setattr(host, "is_gateway_process", lambda: True)
     monkeypatch.setattr(host, "_pid_file_names_this_process", lambda: False)
     monkeypatch.setattr(host, "_PID_POLL_SECONDS", 0.01)

@@ -252,9 +252,30 @@ Across `plugin.yaml`, `dashboard/manifest.json`, `hr_routes.PLUGIN_NAME`, `plugi
 Android package, and the pairing URI scheme. Ship a migration note: an existing paired phone must pair
 again. After V1–V6 so the rename lands once.
 
+Status 2026-09-16: shipped, deeper than listed and without the forced re-pair. Renamed: plugin
+and manifest name, route prefix (`/api/plugins/hermes-talaria`, `Client.API_PREFIX`), pairing
+scheme on both sides, provider `hermes-talaria-device` and its scope, the CLI verb (`hermes
+talaria`), `HERMES_TALARIA_*` env vars, the state dir (`<hermes root>/talaria`), and display names
+(`Talaria`, `TalariaDeviceProvider`, `Theme.Talaria`, new certificates' CN). Kept: the `hr_` module
+prefix, the `hr1.` token prefix, the Android `applicationId` (`dev.pawl.hermes`, never carried the
+old name), Gradle `rootProject.name`, both repo folders, and the one QR golden payload whose
+digest was decoded outside the suite.
+
+The re-pair the plan expected is avoided: device records never stored the provider name or
+scope, so `hr_paths.migrate_legacy_state` (called first in `register`) renames `remote/` to
+`talaria/` when only the old one holds a `devices.json`, and the stored token and pinned
+certificate stay valid. The phone needs only the new build. README § "Renamed from hermes-remote"
+is the migration note. On this machine the junction and `plugins.enabled` are swapped.
+
+Proven: 170 plugin tests (three new in `test_paths.py`), 80 shared, `assembleDebug` clean; the
+real `hermes_cli.main talaria status` against a scratch `HERMES_HOME` loaded the plugin through the
+new junction name and moved a seeded `remote/` to `talaria/`. Not proven: the live move, because
+the running gateway (pid 26484) still holds the old code and the old `remote/` store, and a CLI run
+against the real home would have pulled the store out from under it. It happens on the next restart.
+
 ### V8 — Distribution · Opus 5 / medium
 
-Firewall setup emitted as a command by `hermes remote pair` rather than living in the README, plus the
+Firewall setup emitted as a command by `hermes talaria pair` rather than living in the README, plus the
 macOS and Linux equivalents. Then catalog packaging so `hermes plugins install` works, and an APK
 story for the phone half.
 

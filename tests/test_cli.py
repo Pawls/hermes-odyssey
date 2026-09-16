@@ -1,4 +1,4 @@
-"""``hermes remote pair | status | revoke``, driven through the argparse tree Hermes builds.
+"""``hermes talaria pair | status | revoke``, driven through the argparse tree Hermes builds.
 
 The parser is assembled here exactly as ``_attach_plugin_cli_command`` assembles it — a subparser
 per command, ``handler_fn`` as ``func`` — so a change to :func:`hr_cli.setup` that would not parse
@@ -200,7 +200,7 @@ def test_an_unknown_device_is_an_error_not_a_silent_success(run):
 def test_revoke_with_no_argument_says_what_to_do(run):
     result = run("revoke")
     assert result.code == 1
-    assert "hermes remote status" in result.err
+    assert "hermes talaria status" in result.err
 
 
 def test_revoke_all_ends_every_live_device(run, hr_devices):
@@ -303,7 +303,7 @@ def test_attach_reaps_a_terminal_whose_process_died(run, hosted, hr_devices):
 # ---- the bare command ------------------------------------------------------
 
 
-def test_bare_hermes_remote_prints_the_usage_and_fails(run):
+def test_bare_hermes_talaria_prints_the_usage_and_fails(run):
     result = run()
     assert result.code == 2
     for command in ("pair", "status", "revoke"):

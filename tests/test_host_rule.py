@@ -26,8 +26,8 @@ def listener(_plugin_on_path, monkeypatch, tmp_path):
     module = importlib.import_module("hr_listener")
     hr_paths = importlib.import_module("hr_paths")
     monkeypatch.setattr(hr_paths, "state_dir", lambda: tmp_path)
-    monkeypatch.setenv("HERMES_REMOTE_LISTENER", "1")
-    monkeypatch.setenv("HERMES_REMOTE_HOST", "127.0.0.1")
+    monkeypatch.setenv("HERMES_TALARIA_LISTENER", "1")
+    monkeypatch.setenv("HERMES_TALARIA_HOST", "127.0.0.1")
     module.state.running = False
     module.state.error = ""
     yield module
@@ -99,7 +99,7 @@ def test_this_surface_reads_the_headless_marker(listener, monkeypatch):
 
 
 def test_host_decision(listener, monkeypatch):
-    monkeypatch.setenv("HERMES_REMOTE_PORT", "9443")
+    monkeypatch.setenv("HERMES_TALARIA_PORT", "9443")
     assert listener.host_decision("dashboard", None) == "bind"
     assert listener.host_decision("dashboard", {"surface": "desktop", "pid": 1, "port": 9443}) == "wait"
     assert listener.host_decision("dashboard", {"surface": "dashboard", "pid": 1, "port": 9443}) == "wait"
@@ -129,7 +129,7 @@ def test_pid_alive_tells_a_running_process_from_a_dead_or_nonsense_one(listener,
 
 def test_a_dashboard_waits_behind_a_live_desktop_host(listener, monkeypatch, other_pid, held_port):
     _as(listener, monkeypatch, "dashboard")
-    monkeypatch.setenv("HERMES_REMOTE_PORT", str(held_port))
+    monkeypatch.setenv("HERMES_TALARIA_PORT", str(held_port))
     _record(listener, "runtime", pid=other_pid, surface="desktop", port=held_port)
 
     assert asyncio.run(listener.host_tick(1)) == "wait"
@@ -140,7 +140,7 @@ def test_a_dashboard_waits_behind_a_live_desktop_host(listener, monkeypatch, oth
 
 def test_a_desktop_claims_a_port_a_dashboard_holds(listener, monkeypatch, other_pid, held_port):
     _as(listener, monkeypatch, "desktop")
-    monkeypatch.setenv("HERMES_REMOTE_PORT", str(held_port))
+    monkeypatch.setenv("HERMES_TALARIA_PORT", str(held_port))
     _record(listener, "runtime", pid=other_pid, surface="dashboard", port=held_port)
 
     assert asyncio.run(listener.host_tick(1)) == "claim"
@@ -151,7 +151,7 @@ def test_a_desktop_claims_a_port_a_dashboard_holds(listener, monkeypatch, other_
 
 def test_a_record_from_a_dead_process_does_not_hold_the_port(listener, monkeypatch, held_port):
     _as(listener, monkeypatch, "dashboard")
-    monkeypatch.setenv("HERMES_REMOTE_PORT", str(held_port))
+    monkeypatch.setenv("HERMES_TALARIA_PORT", str(held_port))
     _record(listener, "runtime", pid=DEAD_PID, surface="desktop", port=held_port)
 
     # Nobody live holds it, so this is a plain bind attempt - which fails on the held port and
@@ -162,7 +162,7 @@ def test_a_record_from_a_dead_process_does_not_hold_the_port(listener, monkeypat
 
 def test_binding_records_the_surface_and_clears_the_claim(listener, monkeypatch):
     _as(listener, monkeypatch, "desktop")
-    monkeypatch.setenv("HERMES_REMOTE_PORT", str(_free_port()))
+    monkeypatch.setenv("HERMES_TALARIA_PORT", str(_free_port()))
     _record(listener, "claim", pid=os.getpid(), surface="desktop")
 
     async def scenario():
@@ -183,7 +183,7 @@ def test_a_host_yields_to_a_live_desktop_claim_and_holds_against_a_dead_one(
 ):
     _as(listener, monkeypatch, "dashboard")
     port = _free_port()
-    monkeypatch.setenv("HERMES_REMOTE_PORT", str(port))
+    monkeypatch.setenv("HERMES_TALARIA_PORT", str(port))
 
     async def scenario():
         assert await listener.host_tick(1) == "bound"

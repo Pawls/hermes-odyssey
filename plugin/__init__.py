@@ -1,13 +1,13 @@
-"""HermesRemote — the desktop half of a phone client for a live Hermes session.
+"""Talaria — the desktop half of a phone client for a live Hermes session.
 
 Registered here:
 
-1. :class:`~hr_provider.HermesRemoteDeviceProvider` on the dashboard's bearer-token seam, so a
+1. :class:`~hr_provider.TalariaDeviceProvider` on the dashboard's bearer-token seam, so a
    paired phone's token is recognised process-wide.
 2. This plugin's own API paths as token routes, so the phone's bearer clears the dashboard's
    gate instead of being bounced to ``/login`` (gated mode) or 401'd for want of a session
    token (loopback mode).
-3. ``hermes remote pair | status | revoke`` (:mod:`hr_cli`), which is where a person mints a
+3. ``hermes talaria pair | status | revoke`` (:mod:`hr_cli`), which is where a person mints a
    device token and reads the certificate fingerprint off a QR code.
 
 The fourth piece, the TLS listener, is armed in two places and never from ``register`` as such.
@@ -19,7 +19,7 @@ calls ``hr_gateway_host.arm``, which refuses every process that is not a real ``
 holds the port only while no window is open to hold it.
 
 The routes themselves live in ``dashboard/manifest.json`` + ``dashboard/api.py``, which the
-dashboard imports separately — a plugin router is mounted at ``/api/plugins/hermes-remote`` only
+dashboard imports separately — a plugin router is mounted at ``/api/plugins/hermes-talaria`` only
 when the plugin's name is in ``plugins.enabled`` (GHSA-mcfc-hp25-cjv7). ``register`` runs in every
 Hermes process (``discover_plugins()`` precedes ``start_server``); the seam calls below are
 harmless where no dashboard exists, and the module-level imports are deliberately cheap so plugin
@@ -32,14 +32,14 @@ from __future__ import annotations
 
 import logging
 
-from . import hr_routes
-from .hr_provider import HermesRemoteDeviceProvider
+from . import hr_paths, hr_routes
+from .hr_provider import TalariaDeviceProvider
 
 logger = logging.getLogger(__name__)
 
-_TAG = "hermes-remote"
+_TAG = "hermes-talaria"
 
-#: Set when registration declines or fails, for ``hermes remote status`` to report.
+#: Set when registration declines or fails, for ``hermes talaria status`` to report.
 LAST_SKIP_REASON: str = ""
 
 
@@ -56,7 +56,7 @@ def _register_token_routes() -> None:
 
 
 def _register_cli(ctx) -> None:
-    """Wire ``hermes remote pair|status|revoke``.
+    """Wire ``hermes talaria pair|status|revoke``.
 
     ``hr_cli`` is imported here rather than at module scope so plugin load does not pay for it in
     the gateway and dashboard processes, which never run a CLI command.
@@ -92,7 +92,13 @@ def register(ctx) -> None:
     LAST_SKIP_REASON = ""
 
     try:
-        ctx.register_dashboard_auth_provider(HermesRemoteDeviceProvider())
+        if hr_paths.migrate_legacy_state():
+            logger.info("%s: moved state from the hermes-remote directory to %s", _TAG, hr_paths.state_dir())
+    except Exception as exc:  # noqa: BLE001 — an unmoved store reads as no devices, not a failed load
+        logger.warning("%s: legacy state not moved: %s", _TAG, exc)
+
+    try:
+        ctx.register_dashboard_auth_provider(TalariaDeviceProvider())
     except Exception as exc:  # noqa: BLE001 — a failed registration must not abort plugin load
         LAST_SKIP_REASON = f"dashboard-auth provider registration failed: {exc}"
         logger.warning("%s: %s", _TAG, LAST_SKIP_REASON)

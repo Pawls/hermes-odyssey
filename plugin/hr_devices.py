@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-try:  # package import (``hermes_plugins.hermes_remote``)
+try:  # package import (``hermes_plugins.hermes_talaria``)
     from . import hr_paths
 except ImportError:  # standalone path load from dashboard/api.py
     import hr_paths  # type: ignore[no-redef]
@@ -198,7 +198,7 @@ def create_device(label: str, path: Optional[Path] = None) -> Tuple[Device, str]
 def revoke_device(device_id: str, path: Optional[Path] = None) -> bool:
     """Mark a device revoked. Returns False when it is unknown or already revoked.
 
-    The record is kept rather than deleted so ``hermes remote status`` can still show that a
+    The record is kept rather than deleted so ``hermes talaria status`` can still show that a
     device existed and when its access ended.
     """
     with _write_lock:

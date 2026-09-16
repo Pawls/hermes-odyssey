@@ -41,7 +41,7 @@ def test_the_wire_format_is_the_one_the_app_parses(hr_pairing):
     """The scheme and the six single-letter keys are the contract. Changing one silently breaks a
     shipped client, so they are spelled out here rather than derived."""
     uri = hr_pairing.build(**FIELDS)
-    assert uri.startswith("hermes-remote://pair?")
+    assert uri.startswith("hermes-talaria://pair?")
     query = uri.split("?", 1)[1]
     keys = [pair.split("=", 1)[0] for pair in query.split("&")]
     assert keys == ["v", "h", "p", "f", "t", "n"]
