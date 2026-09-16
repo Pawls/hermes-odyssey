@@ -302,9 +302,11 @@ real install from git (`HERMES_HOME=<scratch> hermes plugins install file:///…
 --ref <sha> --no-enable`) is **blocked**. The install scanner's `\bsudo\b` rule
 (`tools/skills_guard.py:316`, high, privilege_escalation) matches the six printed Unix commands in
 `plugin/hr_firewall.py:75-100`. Every external plugin scans as `community` trust, and community plus a
-caution verdict blocks without `--force`. Undecided: drop the `sudo` prefix and label the shell as a
-root shell, document `--force`, move the Unix commands into docs, or open an upstream PR to narrow the
-rule. Catalog admission also needs a public https repo (this repo has no remote) and a PR adding
+caution verdict blocks without `--force`. Decided (Paul): drop the prefix and label the shell "as
+root", since root is reachable several ways and the docstring must avoid the token too. Proven: 180
+tests pass; the same scratch install at the fix commit installs `hermes-talaria` with no scan finding.
+An upstream PR narrowing the rule to exempt printed text stays worth filing (the rule already carries a
+`sudo.request` exemption for the same class of false positive). Catalog admission also needs a public https repo (this repo has no remote) and a PR adding
 `plugin-catalog/hermes-talaria.yaml` to hermes-agent with `subdir: plugin` and an exact SHA.
 
 ## Rejected
