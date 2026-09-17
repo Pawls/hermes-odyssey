@@ -41,11 +41,12 @@ import time
 from typing import Any, Awaitable, Callable, Optional
 
 try:  # package import (``hermes_plugins.hermes_odyssey``)
-    from . import hr_history, hr_listener, hr_routes, hr_wsauth
+    from . import hr_history, hr_listener, hr_media, hr_routes, hr_wsauth
     from .hr_provider import PROVIDER_NAME
 except ImportError:  # standalone path load
     import hr_history  # type: ignore[no-redef]
     import hr_listener  # type: ignore[no-redef]
+    import hr_media  # type: ignore[no-redef]
     import hr_routes  # type: ignore[no-redef]
     import hr_wsauth  # type: ignore[no-redef]
     from hr_provider import PROVIDER_NAME  # type: ignore[no-redef]
@@ -60,6 +61,7 @@ _PID_POLL_SECONDS = 3.0
 _HEALTH_PATH = f"{hr_routes.API_PREFIX}{hr_routes.ROUTE_HEALTH}"
 _WS_TICKET_PATH = f"{hr_routes.API_PREFIX}{hr_routes.ROUTE_WS_TICKET}"
 _MESSAGES_PATH = f"{hr_routes.API_PREFIX}{hr_routes.ROUTE_MESSAGES}"
+_MEDIA_PATH = f"{hr_routes.API_PREFIX}{hr_routes.ROUTE_MEDIA}"
 
 #: The WebSocket handler. Resolved lazily because importing it imports ``tui_gateway.server``;
 #: tests set it to a stub so a socket can be driven without a gateway in the process.
@@ -141,6 +143,18 @@ async def _send_json(send, status: int, body: Any) -> None:
     await send({"type": "http.response.body", "body": payload, "more_body": False})
 
 
+async def _send_bytes(send, status: int, body: bytes, headers: Any) -> None:
+    """A non-JSON response: the served image, with the headers ``hr_media`` names for both hosts."""
+    await send(
+        {
+            "type": "http.response.start",
+            "status": status,
+            "headers": [(k.encode("ascii"), v.encode("latin-1")) for k, v in headers.items()],
+        }
+    )
+    await send({"type": "http.response.body", "body": body, "more_body": False})
+
+
 class GatewayHost:
     """A bare ASGI app answering the plugin's routes and terminating ``/api/ws`` in-process.
 
@@ -199,6 +213,20 @@ class GatewayHost:
             except hr_history.PageError as exc:
                 await hr_listener._send_error(send, hr_listener._Rejected(exc.status, exc.detail))
                 return
+        elif path == _MEDIA_PATH and method == "GET":
+            from urllib.parse import parse_qsl
+
+            params = dict(parse_qsl(scope.get("query_string", b"").decode("latin-1")))
+            try:
+                session_id, media_path = hr_media.parse_query(params)
+                # Off this loop for the same reason the lineage read is: a 25 MB read from a cold
+                # disk would stall every streaming socket the phone has open.
+                data, content_type = await asyncio.to_thread(hr_media.read_media, session_id, media_path)
+            except hr_media.MediaError as exc:
+                await hr_listener._send_error(send, hr_listener._Rejected(exc.status, exc.detail))
+                return
+            await _send_bytes(send, 200, data, hr_media.response_headers(content_type, len(data)))
+            return
         else:
             await hr_listener._send_error(send, hr_listener._Rejected(404, "not found"))
             return

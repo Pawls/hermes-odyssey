@@ -33,11 +33,17 @@ ROUTE_WS_TICKET = "/ws-ticket"
 #: segment, because the token seam matches paths exactly and cannot register a template.
 ROUTE_MESSAGES = "/messages"
 
+#: One image an agent wrote during a session (``hr_media``), by path. Query parameters for the same
+#: reason ``/messages`` uses them, and because a path as a path segment would be re-normalised by
+#: whichever server saw it first.
+ROUTE_MEDIA = "/media"
+
 #: Every path the token seam must recognise, absolute.
 TOKEN_ROUTES: tuple[str, ...] = (
     f"{API_PREFIX}{ROUTE_HEALTH}",
     f"{API_PREFIX}{ROUTE_WS_TICKET}",
     f"{API_PREFIX}{ROUTE_MESSAGES}",
+    f"{API_PREFIX}{ROUTE_MEDIA}",
 )
 
 #: Path of the JSON-RPC gateway socket, the same on every host: the dashboard mounts it there and

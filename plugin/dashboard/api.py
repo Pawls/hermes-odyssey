@@ -23,6 +23,7 @@ from types import ModuleType
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import Response
 
 _log = logging.getLogger(__name__)
 
@@ -60,6 +61,7 @@ def _sibling(module_name: str) -> ModuleType:
 
 hr_devices = _sibling("hr_devices")
 hr_history = _sibling("hr_history")
+hr_media = _sibling("hr_media")
 hr_listener = _sibling("hr_listener")
 hr_provider = _sibling("hr_provider")
 hr_routes = _sibling("hr_routes")
@@ -163,3 +165,19 @@ def messages(request: Request) -> Dict[str, Any]:
         return hr_history.read_page(session_id, before=before, limit=limit)
     except hr_history.PageError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+
+
+@router.get(hr_routes.ROUTE_MEDIA)
+def media(request: Request) -> Response:
+    """One image an agent wrote, by path, screened by :mod:`hr_media`.
+
+    Sync like :func:`messages`, and for the same reason: the read is blocking file I/O and FastAPI
+    runs a sync handler on a worker thread rather than the dashboard's loop.
+    """
+    _require_device(request)
+    try:
+        session_id, path = hr_media.parse_query(dict(request.query_params))
+        data, content_type = hr_media.read_media(session_id, path)
+    except hr_media.MediaError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+    return Response(content=data, headers=hr_media.response_headers(content_type, len(data)))
