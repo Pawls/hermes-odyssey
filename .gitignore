@@ -2,3 +2,4 @@
 __pycache__/
 *.pyc
 .phase0/
+.claude/settings.local.json
