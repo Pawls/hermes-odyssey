@@ -48,7 +48,7 @@ Gathered 2026-09-10, from the code and then from the logs.
 
 ## Slices
 
-### V1 — Surface RPC failures in the app · Fable 5.1 / medium
+### ~~V1 — Surface RPC failures in the app~~ · Fable 5.1 / medium — SHIPPED 2026-09-10
 
 `prompt.submit` handles its outcome the way `approval.respond` does. On `Failed` or `Dropped`, the local
 bubble is marked failed, a `Trouble` row carries the gateway's own message underneath it, and
@@ -68,7 +68,7 @@ Status 2026-09-10: shipped as HermesRemote abe1835. 66 shared tests pass (three 
 installed on the phone; the real send into the TUI-held session is Paul's to fire and is the one
 thing still unverified.
 
-### V2 — Make the refusal actionable · Fable 5.1 / medium
+### ~~V2 — Make the refusal actionable~~ · Fable 5.1 / medium — SHIPPED 2026-09-10
 
 On 4090 the app knows which surface owns the session. Offer the two things that are true: keep reading
 it (the transcript is stored and `sessions.changed` is not needed for that), or open a new session on
@@ -91,7 +91,7 @@ app's process - the V3 host case is already what happens today. Also `hermes rem
 "listening on 127.0.0.1:9443" while netstat shows the bind on 0.0.0.0; the status line reports the
 wrong host and V3 should fix it in passing.
 
-### V3 — The listener follows the surface Paul is looking at · Fable 5.1 / high
+### ~~V3 — The listener follows the surface Paul is looking at~~ · Fable 5.1 / high — SHIPPED 2026-09-10
 
 The host for 9443 must be the process whose window Paul is watching, because that is the only
 process a phone turn can stream into. Two processes arm the listener: `hermes dashboard` and the
@@ -122,7 +122,7 @@ port 9444 so the live host was untouched:
 Ten new tests (`tests/test_host_rule.py`), suite at 129. What is not proven: a real phone crossing a
 handover, which needs the desktop app restarted with the new plugin and Paul's thumb.
 
-### V4 — Host when no window is open · Fable 5.1 / high
+### ~~V4 — Host when no window is open~~ · Fable 5.1 / high — SHIPPED 2026-09-15
 
 The old V3's third bullet, on its own because it is the one with real unknowns. With neither the
 desktop app nor a dashboard running, nothing holds 9443 and the phone cannot start a session.
@@ -180,7 +180,7 @@ state. `session.delete` over the socket answered 4023 while the lease was live; 
 delete` removed it afterwards, and the scratch device was revoked. The phone-in-hand send is
 still Paul's to fire but nothing in the path is unexercised.
 
-### V5 — TUI as a viewer of the shared process · Fable 5.1 / high
+### ~~V5 — TUI as a viewer of the shared process~~ · Fable 5.1 / high — SHIPPED 2026-09-15
 
 `hermes remote attach [--resume <id>]` launches `hermes --tui` with `HERMES_TUI_GATEWAY_URL` pointing at
 the hosting process's `/api/ws`, so the terminal becomes a second transport on the same live session
@@ -212,7 +212,7 @@ session deleted. Nine new tests, suite at 148. Not proven: Ink itself in a real 
 needs a TTY and is Paul's to run (`hermes remote attach`, then send from the phone into the
 session the TUI shows).
 
-### V6 — mDNS discovery · Opus 5 / medium
+### ~~V6 — mDNS discovery~~ · Opus 5 / medium — SHIPPED 2026-09-15
 
 Replace the address baked into the pairing payload by `hr_pairing.build`, so the QR survives a moved
 DHCP lease. The reservation on the gateway is the cheap version and stays until this lands.
@@ -246,7 +246,7 @@ real phone crossing a moved lease, which needs a re-pair and a lease change, and
 VPN that captures multicast, where the query may leave by the wrong interface. No phone was
 attached, so the debug build is not installed.
 
-### V7 — Rename to hermes-talaria · Opus 5 / medium
+### ~~V7 — Rename to hermes-talaria~~ · Opus 5 / medium — SHIPPED 2026-09-16
 
 Across `plugin.yaml`, `dashboard/manifest.json`, `hr_routes.PLUGIN_NAME`, `plugins.enabled`, the
 Android package, and the pairing URI scheme. Ship a migration note: an existing paired phone must pair
@@ -359,6 +359,10 @@ Play listing.
 Decided 2026-09-16 (Paul): the catalog PR waits until Odyssey meets Paul's quality bar, meaning local
 testing is complete and the planned features are in. The drafted entry above is re-pinned when it is
 submitted. The repo and the 0.1.0 APK stay public meanwhile.
+
+Next up: this plan's remaining work (catalog PR, Play listing) moved to the app repository's
+chat-quality plan as its final slice, behind chat work and a full local test pass. Work continues
+there.
 
 ## Rejected
 
