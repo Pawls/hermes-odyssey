@@ -20,14 +20,25 @@ position), so the cursor is located by position in the projection, never compare
 Tool rows carry no ``row_id`` in the gateway's projection, so a page always starts on a message
 that has one, growing backwards past any leading tool rows; the cursor it returns is that
 message's id.
+
+The one departure from the resume payload: tool rows also carry what the call returned. The
+projection keeps a tool call's name and arguments but drops its result, which the desktop shows
+when a call is expanded (it pages raw rows and pairs results by ``tool_call_id``). So each tool
+row gains ``tool_call_id``, ``result`` capped at :data:`RESULT_CHARS` (``result_chars`` gives the
+full length when it was cut), and for ``patch`` the unified ``inline_diff`` Hermes extracts from it.
+A single call made through the ``tool_call`` wrapper is also named by the tool it ran, as it is live.
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any, Callable, Dict, List, Optional
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
+#: A tool result's size on the page. Stored results run p50 0.7 KiB, p99 21 KiB, max 117 KiB
+#: (Paul's store, 2026-09-17), so this keeps a page of tool calls small without cutting most.
+RESULT_CHARS = 16_000
 
 
 class PageError(Exception):
@@ -73,6 +84,99 @@ READ_HISTORY: Callable[[str], Optional[tuple]] = _read_display_history
 PROJECT: Callable[[List[dict]], List[dict]] = _project
 
 
+def _attach_tool_results(history: List[dict], messages: List[dict]) -> None:
+    """Give each projected tool row its stored result, in place.
+
+    The projection emits tool rows in stored order but can drop some (hidden, compaction), so the
+    stored rows are filtered through the same projection before pairing: all at once when none
+    drop, which is the usual case, one by one otherwise. If the counts still disagree the rows are
+    left as resume sends them rather than paired with the wrong results.
+    """
+    shown = [m for m in messages if m.get("role") == "tool"]
+    if not shown:
+        return
+    stored = [m for m in history if isinstance(m, dict) and m.get("role") == "tool"]
+    if len(PROJECT(stored)) != len(stored):
+        stored = [m for m in stored if PROJECT([m])]
+    if len(stored) != len(shown):
+        return
+    for row, source in zip(shown, stored):
+        _unwrap_tool_call(row)
+        if source.get("tool_call_id"):
+            row["tool_call_id"] = source["tool_call_id"]
+        content = source.get("content")
+        if content is None:
+            continue
+        text = _result_text(content)
+        row["result"] = text[:RESULT_CHARS]
+        if len(text) > RESULT_CHARS:
+            row["result_chars"] = len(text)
+        diff = _patch_diff(row.get("name"), text)
+        if diff:
+            row["inline_diff"] = diff[:RESULT_CHARS]
+
+
+def _unwrap_tool_call(row: dict) -> None:
+    """Name a lazily loaded tool by the tool it ran, the way the live ``tool.start`` does.
+
+    A model that loads tools on demand calls them through ``tool_call`` with
+    ``{"calls": [{"name", "arguments"}]}``, and the projection names the row after that wrapper, so
+    a todo update read ``tool_call`` in history and ``todo_list`` live. Only a single call is
+    unwrapped: the stored result of several is one result for all of them.
+    """
+    calls = (row.get("args") or {}).get("calls") if row.get("name") == "tool_call" else None
+    if not isinstance(calls, list) or len(calls) != 1 or not isinstance(calls[0], dict):
+        return
+    name, args = calls[0].get("name"), calls[0].get("arguments")
+    if not isinstance(name, str) or not name:
+        return
+    args = args if isinstance(args, dict) else {}
+    row["name"] = name
+    row["args"] = args
+    try:
+        from tui_gateway.server import _tool_ctx
+
+        row["context"] = _tool_ctx(name, args)
+    except Exception:
+        row["context"] = ""
+
+
+def _result_text(content: Any) -> str:
+    """A stored result as text. A multimodal result (``vision_analyze`` loads its image into the
+    model's context) keeps its text parts; an image part becomes ``[image]``, since its URL is
+    usually a base64 data URL of up to 100 KiB that the row cannot show."""
+    parts = content if isinstance(content, list) else [content] if isinstance(content, dict) else None
+    if parts is None:
+        return str(content)
+    chunks = []
+    for part in parts:
+        if isinstance(part, str):
+            chunks.append(part)
+        elif isinstance(part, dict) and isinstance(part.get("text"), str):
+            chunks.append(part["text"])
+        elif isinstance(part, dict) and "image" in str(part.get("type", "")):
+            chunks.append("[image]")
+        else:
+            chunks.append(json.dumps(part, ensure_ascii=False))
+    return "\n".join(chunks)
+
+
+def _patch_diff(name: Optional[str], result: str) -> Optional[str]:
+    """The diff a live ``tool.complete`` would have rendered, for the edits a stored row can show.
+
+    Only ``patch`` stores its diff in the result; ``write_file`` diffs come from a snapshot taken
+    before the write, which history does not have.
+    """
+    if name != "patch":
+        return None
+    try:
+        from agent.display import extract_edit_diff
+
+        return extract_edit_diff(name, result)
+    except Exception:
+        return None
+
+
 def parse_query(params: Dict[str, str]) -> tuple:
     """``(session_id, before, limit)`` from query parameters, or raise :class:`PageError` 400."""
     session_id = (params.get("session_id") or "").strip()
@@ -108,6 +212,7 @@ def read_page(session_id: str, *, before: Optional[int] = None, limit: int = DEF
         raise PageError(404, "session not found")
     tip, history = read
     messages = PROJECT(history)
+    _attach_tool_results(history, messages)
 
     end = len(messages)
     if before is not None:

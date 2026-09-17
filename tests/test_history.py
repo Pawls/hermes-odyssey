@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 import uuid
 
 import pytest
@@ -54,15 +55,20 @@ def _resume_wire(db, sid: str) -> list:
     return _history_to_messages(db.get_resume_conversations(tip)[1])
 
 
+#: What a page adds to a tool row beyond the resume payload.
+_RESULT_KEYS = ("tool_call_id", "result", "result_chars", "inline_diff")
+
+
 def _walk(hr_history, sid: str, limit: int) -> list:
-    """Every page from the newest back to the start, stitched into chronological order."""
+    """Every page from the newest back to the start, stitched into chronological order, with the
+    tool results a page adds taken back out so it compares with the resume payload."""
     pages, before = [], None
     while True:
         page = hr_history.read_page(sid, before=before, limit=limit)
         pages.insert(0, page["messages"])
         if not page["has_more"]:
             assert page["before"] is None
-            return [m for chunk in pages for m in chunk]
+            return [{k: v for k, v in m.items() if k not in _RESULT_KEYS} for chunk in pages for m in chunk]
         before = page["before"]
         assert before == page["messages"][0]["row_id"]
 
@@ -133,6 +139,109 @@ def test_a_page_boundary_inside_a_tool_run_keeps_the_calls_arguments(hr_history,
     assert [t["args"] for t in tools] == [{"command": f"ls {n}"} for n in range(3)]
     assert newest["messages"][0].get("row_id") is not None
     assert _walk(hr_history, sid, limit=3) == _resume_wire(db, sid)
+
+
+# ---- tool results -------------------------------------------------------------
+
+
+def _tool_turn(db, sid: str, results: list, name: str = "terminal") -> None:
+    db.append_message(sid, "user", "run them")
+    calls = [
+        {"id": f"call_{n}", "type": "function", "function": {"name": name, "arguments": f'{{"n": {n}}}'}}
+        for n in range(len(results))
+    ]
+    db.append_message(sid, "assistant", "", tool_calls=calls)
+    for n, result in enumerate(results):
+        db.append_message(sid, "tool", result, tool_call_id=f"call_{n}", tool_name=name)
+    db.append_message(sid, "assistant", "done")
+
+
+def test_tool_rows_carry_their_results_and_call_ids(hr_history, db):
+    sid = _new_session(db)
+    _tool_turn(db, sid, ["first output", '{"exit_code": 0}'])
+
+    tools = [m for m in hr_history.read_page(sid)["messages"] if m["role"] == "tool"]
+
+    assert [(t["tool_call_id"], t["result"]) for t in tools] == [("call_0", "first output"), ("call_1", '{"exit_code": 0}')]
+    assert all("result_chars" not in t for t in tools)
+
+
+def test_a_long_result_is_cut_and_says_how_long_it_was(hr_history, db):
+    sid = _new_session(db)
+    _tool_turn(db, sid, ["x" * (hr_history.RESULT_CHARS + 5)])
+
+    (tool,) = [m for m in hr_history.read_page(sid)["messages"] if m["role"] == "tool"]
+
+    assert len(tool["result"]) == hr_history.RESULT_CHARS
+    assert tool["result_chars"] == hr_history.RESULT_CHARS + 5
+
+
+def test_a_hidden_tool_row_does_not_shift_the_results(hr_history, db):
+    """Pairing is by position among the rows the projection keeps; a dropped one must not hand its
+    result to the next call."""
+    sid = _new_session(db)
+    db.append_message(sid, "user", "go")
+    calls = [{"id": f"call_{n}", "type": "function", "function": {"name": "terminal", "arguments": "{}"}} for n in range(3)]
+    db.append_message(sid, "assistant", "", tool_calls=calls)
+    db.append_message(sid, "tool", "zero", tool_call_id="call_0", tool_name="terminal")
+    db.append_message(sid, "tool", "scaffolding", tool_call_id="call_1", tool_name="terminal", display_kind="hidden")
+    db.append_message(sid, "tool", "two", tool_call_id="call_2", tool_name="terminal")
+
+    tools = [m for m in hr_history.read_page(sid)["messages"] if m["role"] == "tool"]
+
+    assert [(t["tool_call_id"], t["result"]) for t in tools] == [("call_0", "zero"), ("call_2", "two")]
+
+
+def test_an_image_in_a_result_is_a_placeholder_not_its_data(hr_history, db):
+    sid = _new_session(db)
+    parts = [
+        {"type": "text", "text": "Image loaded into your context"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64," + "A" * 50_000}},
+    ]
+    _tool_turn(db, sid, [parts], name="vision_analyze")
+
+    (tool,) = [m for m in hr_history.read_page(sid)["messages"] if m["role"] == "tool"]
+
+    assert tool["result"] == "Image loaded into your context\n[image]"
+
+
+def test_a_single_wrapped_tool_call_is_named_by_the_tool_it_ran(hr_history, db):
+    sid = _new_session(db)
+    db.append_message(sid, "user", "plan")
+    wrapped = {"calls": [{"name": "todo_list", "arguments": {"todos": [{"id": "1", "content": "read", "status": "pending"}]}}]}
+    two = {"calls": [{"name": "read_file", "arguments": {}}, {"name": "terminal", "arguments": {}}]}
+    calls = [
+        {"id": "call_0", "type": "function", "function": {"name": "tool_call", "arguments": json.dumps(wrapped)}},
+        {"id": "call_1", "type": "function", "function": {"name": "tool_call", "arguments": json.dumps(two)}},
+    ]
+    db.append_message(sid, "assistant", "", tool_calls=calls)
+    db.append_message(sid, "tool", '{"todos": []}', tool_call_id="call_0", tool_name="tool_call")
+    db.append_message(sid, "tool", "both ran", tool_call_id="call_1", tool_name="tool_call")
+
+    single, several = [m for m in hr_history.read_page(sid)["messages"] if m["role"] == "tool"]
+
+    assert (single["name"], single["args"]) == ("todo_list", wrapped["calls"][0]["arguments"])
+    assert isinstance(single["context"], str)
+    assert (several["name"], several["args"]) == ("tool_call", two)
+
+
+def test_a_patch_row_carries_its_diff(hr_history, db):
+    sid = _new_session(db)
+    diff = "--- a/x.txt\n+++ b/x.txt\n@@ -1 +1 @@\n-old\n+new\n"
+    _tool_turn(db, sid, ['{"success": true, "diff": ' + json.dumps(diff) + "}"], name="patch")
+
+    (tool,) = [m for m in hr_history.read_page(sid)["messages"] if m["role"] == "tool"]
+
+    assert tool["inline_diff"] == diff
+
+
+def test_a_non_patch_row_has_no_diff(hr_history, db):
+    sid = _new_session(db)
+    _tool_turn(db, sid, ['{"diff": "--- a\\n+++ b\\n"}'])
+
+    (tool,) = [m for m in hr_history.read_page(sid)["messages"] if m["role"] == "tool"]
+
+    assert "inline_diff" not in tool
 
 
 def test_hidden_rows_are_not_on_the_page_and_do_not_shorten_it(hr_history, db):

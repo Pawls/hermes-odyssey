@@ -68,7 +68,7 @@ or run `hermes plugins enable hermes-odyssey`.
 | `plugin/hr_identity.py` | the self-signed P-256 certificate the phone pins |
 | `plugin/hr_listener.py` | the TLS reverse proxy in front of loopback 9119, and the rule for which process hosts it |
 | `plugin/hr_gateway_host.py` | the same socket answered in-process inside `hermes gateway run`, for when no window is open |
-| `plugin/hr_history.py` | transcript pages for the phone (`GET /messages?session_id=&before=&limit=`), read from `state.db` |
+| `plugin/hr_history.py` | transcript pages for the phone (`GET /messages?session_id=&before=&limit=`), read from `state.db`, tool rows with their results |
 | `plugin/hr_cli.py`, `hr_qr.py`, `hr_pairing.py` | `hermes odyssey`, its QR encoder, and the payload |
 | `plugin/hr_firewall.py` | the per-OS firewall command `hermes odyssey firewall` prints |
 | `plugin/dashboard/` | what the dashboard imports: `manifest.json` + `api.py` |
