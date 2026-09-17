@@ -356,6 +356,10 @@ scratch home. The catalog entry is re-pinned to `v0.1.0` (`55d9633`) and still v
 for V8: open the catalog PR (Paul approves; it goes to NousResearch/hermes-agent from a fork) and the
 Play listing.
 
+Decided 2026-09-16 (Paul): the catalog PR waits until Odyssey meets Paul's quality bar, meaning local
+testing is complete and the planned features are in. The drafted entry above is re-pinned when it is
+submitted. The repo and the 0.1.0 APK stay public meanwhile.
+
 ## Rejected
 
 - **Retry on 4001 as the fix for the lost message.** The refusal on record was 4090, which no retry
