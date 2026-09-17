@@ -81,9 +81,9 @@ lives out of tree and uses the documented `register(ctx)` surface.
 
 | Path | What |
 | --- | --- |
-| `%USERPROFILE%\source\repos\hermes-remote\` | this repo: the desktop-half plugin, the contract, the tests |
-| `%LOCALAPPDATA%\hermes\plugins\hermes-remote` | a **directory junction** to `plugin/` in this repo |
-| `%USERPROFILE%\AndroidStudioProjects\HermesRemote\` | the Android app and the shared Kotlin module |
+| `%USERPROFILE%\source\repos\hermes-odyssey\` | this repo: the desktop-half plugin, the contract, the tests |
+| `%LOCALAPPDATA%\hermes\plugins\hermes-odyssey` | a **directory junction** to `plugin/` in this repo |
+| `%USERPROFILE%\AndroidStudioProjects\HermesOdyssey\` | the Android app and the shared Kotlin module |
 
 Hermes discovers plugins in `$HERMES_HOME/plugins/`, so the code has to appear there; a
 junction keeps the working copy in `source\repos` where the rest of the work lives and
