@@ -3,7 +3,7 @@
 With neither the desktop app nor ``hermes dashboard`` running, nothing mounts the dashboard router,
 so nothing arms :mod:`hr_listener` and the phone cannot start a session. The gateway is always on
 here, but it serves no HTTP at all, so there is nothing to reverse proxy to. Instead the listener's
-TLS socket is answered in-process by :class:`GatewayHost`: the two plugin routes are answered
+TLS socket is answered in-process by :class:`GatewayHost`: the plugin routes are answered
 directly, and ``/api/ws`` is terminated by handing a Starlette ``WebSocket`` built from the bare
 ASGI scope to ``tui_gateway.ws.handle_ws`` - the same handler the dashboard and the desktop app
 mount, which needs only ``accept``, ``receive_text``, ``send_text`` and ``close`` on it.
@@ -41,9 +41,10 @@ import time
 from typing import Any, Awaitable, Callable, Optional
 
 try:  # package import (``hermes_plugins.hermes_odyssey``)
-    from . import hr_listener, hr_routes, hr_wsauth
+    from . import hr_history, hr_listener, hr_routes, hr_wsauth
     from .hr_provider import PROVIDER_NAME
 except ImportError:  # standalone path load
+    import hr_history  # type: ignore[no-redef]
     import hr_listener  # type: ignore[no-redef]
     import hr_routes  # type: ignore[no-redef]
     import hr_wsauth  # type: ignore[no-redef]
@@ -58,6 +59,7 @@ _PID_POLL_SECONDS = 3.0
 
 _HEALTH_PATH = f"{hr_routes.API_PREFIX}{hr_routes.ROUTE_HEALTH}"
 _WS_TICKET_PATH = f"{hr_routes.API_PREFIX}{hr_routes.ROUTE_WS_TICKET}"
+_MESSAGES_PATH = f"{hr_routes.API_PREFIX}{hr_routes.ROUTE_MESSAGES}"
 
 #: The WebSocket handler. Resolved lazily because importing it imports ``tui_gateway.server``;
 #: tests set it to a stub so a socket can be driven without a gateway in the process.
@@ -142,7 +144,7 @@ async def _send_json(send, status: int, body: Any) -> None:
 class GatewayHost:
     """A bare ASGI app answering the plugin's routes and terminating ``/api/ws`` in-process.
 
-    Bare ASGI for the same reason :class:`hr_listener.ReverseProxy` is: there are two routes and a
+    Bare ASGI for the same reason :class:`hr_listener.ReverseProxy` is: there are three routes and a
     socket, and every request is authenticated by the listener's own gate before anything else.
     """
 
@@ -185,6 +187,18 @@ class GatewayHost:
                 ticket=None,
                 expires_in=None,
             )
+        elif path == _MESSAGES_PATH and method == "GET":
+            from urllib.parse import parse_qsl
+
+            params = dict(parse_qsl(scope.get("query_string", b"").decode("latin-1")))
+            try:
+                session_id, before, limit = hr_history.parse_query(params)
+                # Off this loop: the lineage read is blocking SQLite, and this loop carries every
+                # streaming socket the phone has open.
+                body = await asyncio.to_thread(hr_history.read_page, session_id, before=before, limit=limit)
+            except hr_history.PageError as exc:
+                await hr_listener._send_error(send, hr_listener._Rejected(exc.status, exc.detail))
+                return
         else:
             await hr_listener._send_error(send, hr_listener._Rejected(404, "not found"))
             return

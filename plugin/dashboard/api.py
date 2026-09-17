@@ -59,6 +59,7 @@ def _sibling(module_name: str) -> ModuleType:
 
 
 hr_devices = _sibling("hr_devices")
+hr_history = _sibling("hr_history")
 hr_listener = _sibling("hr_listener")
 hr_provider = _sibling("hr_provider")
 hr_routes = _sibling("hr_routes")
@@ -147,3 +148,18 @@ def ws_ticket(request: Request) -> Dict[str, Any]:
         ticket=ticket,
         expires_in=expires_in,
     )
+
+
+@router.get(hr_routes.ROUTE_MESSAGES)
+def messages(request: Request) -> Dict[str, Any]:
+    """A page of a session's transcript, newest first by page, chronological within one.
+
+    Sync on purpose: FastAPI runs it on a worker thread, so the lineage read never blocks the
+    dashboard's loop.
+    """
+    _require_device(request)
+    try:
+        session_id, before, limit = hr_history.parse_query(dict(request.query_params))
+        return hr_history.read_page(session_id, before=before, limit=limit)
+    except hr_history.PageError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc

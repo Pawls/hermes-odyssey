@@ -68,6 +68,7 @@ or run `hermes plugins enable hermes-odyssey`.
 | `plugin/hr_identity.py` | the self-signed P-256 certificate the phone pins |
 | `plugin/hr_listener.py` | the TLS reverse proxy in front of loopback 9119, and the rule for which process hosts it |
 | `plugin/hr_gateway_host.py` | the same socket answered in-process inside `hermes gateway run`, for when no window is open |
+| `plugin/hr_history.py` | transcript pages for the phone (`GET /messages?session_id=&before=&limit=`), read from `state.db` |
 | `plugin/hr_cli.py`, `hr_qr.py`, `hr_pairing.py` | `hermes odyssey`, its QR encoder, and the payload |
 | `plugin/hr_firewall.py` | the per-OS firewall command `hermes odyssey firewall` prints |
 | `plugin/dashboard/` | what the dashboard imports: `manifest.json` + `api.py` |
@@ -177,7 +178,7 @@ therefore moves the phone within a few seconds. `hermes odyssey status` says whi
 hosting and, while a handover is pending, which one is waiting.
 
 With no window open at all, the always-on `hermes gateway run` hosts it (`hr_gateway_host.py`).
-The gateway serves no HTTP, so there is nothing to proxy to; instead the listener answers the two
+The gateway serves no HTTP, so there is nothing to proxy to; instead the listener answers the
 plugin routes itself and terminates `/api/ws` in-process by handing a Starlette socket to the same
 `tui_gateway.ws.handle_ws` the dashboard mounts. `/health` and `/ws-ticket` report `mode: direct`
 there, and the ticket is null: the bearer on the upgrade is the whole credential. The gateway ranks

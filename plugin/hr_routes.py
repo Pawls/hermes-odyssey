@@ -29,10 +29,15 @@ ROUTE_HEALTH = "/health"
 #: Hands the phone whatever credential its ``/api/ws`` upgrade needs in the current mode.
 ROUTE_WS_TICKET = "/ws-ticket"
 
+#: A page of a session's transcript (``hr_history``). The session is a query parameter, not a path
+#: segment, because the token seam matches paths exactly and cannot register a template.
+ROUTE_MESSAGES = "/messages"
+
 #: Every path the token seam must recognise, absolute.
 TOKEN_ROUTES: tuple[str, ...] = (
     f"{API_PREFIX}{ROUTE_HEALTH}",
     f"{API_PREFIX}{ROUTE_WS_TICKET}",
+    f"{API_PREFIX}{ROUTE_MESSAGES}",
 )
 
 #: Path of the JSON-RPC gateway socket, the same on every host: the dashboard mounts it there and
