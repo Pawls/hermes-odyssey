@@ -371,3 +371,24 @@ there.
 - **Fan-out through `/api/pub` for a read-only live view across processes.** Still possible, but it
   only ever shows a turn; it cannot let the phone send into a session another process owns. Same-process
   attachment (V3, V5) gives both, using mechanisms Hermes already has.
+- **ACP (Agent Client Protocol) as the phone's transport**, rejected 2026-09-18 after the two
+  community VS Code extensions (`eyan-ai/hermes-agent-vs-code`, `Narizis/hermes-chat-vscode`) were
+  found to use it. ACP is real and substantial in Hermes — `acp_adapter/` (~4,200 lines), shipped as
+  `hermes acp` (`hermes_cli/subcommands/acp.py:13`) and `bin/hermes-acp.exe`, advertising
+  `load_session`, image prompts, and unstable fork/list/resume (`acp_adapter/server.py:502`). It is
+  the right choice for an editor and the wrong one here, for one reason: **it is a parallel world to
+  `tui_gateway`, not a route into it.** The adapter's `SessionManager` builds its own `AIAgent` and
+  persists to the shared `state.db` (`acp_adapter/session.py:157,271`); `load_session` and
+  `resume_session` restore stored history into that fresh in-process agent and replay it as
+  `session/update` notifications (`server.py:551`). There is no attach. `lease` appears throughout
+  `tui_gateway/*.py` and **nowhere in `acp_adapter`**, so an ACP-backed phone would be the
+  `hermes --tui` failure this plan's V3 and V5 exist to avoid: a process owning its own session,
+  fenced from the one Paul is looking at. It is also stdio and single-client, so the LAN half
+  (TLS, device auth, revocation) would have to be rebuilt above it regardless.
+  - Corollary worth a run, not yet observed: because `acp_adapter` takes no lease, nothing visible in
+    the code fences an ACP client from `resume`ing a session the phone is live on. A user running one
+    of those extensions beside Odyssey may get two agents on one stored session. Cheap to test.
+  - Not rejected, only unscheduled: the **inverse** — an ACP *facade* on the listener, so an editor on
+    another machine attaches through Odyssey to the live session. The listener already owns the hard
+    parts (TLS, device gate, live-session multiplexing, transcript paging). A slice of its own if it
+    is ever wanted.
