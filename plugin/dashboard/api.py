@@ -62,6 +62,7 @@ def _sibling(module_name: str) -> ModuleType:
 hr_devices = _sibling("hr_devices")
 hr_history = _sibling("hr_history")
 hr_media = _sibling("hr_media")
+hr_sessions = _sibling("hr_sessions")
 hr_listener = _sibling("hr_listener")
 hr_provider = _sibling("hr_provider")
 hr_routes = _sibling("hr_routes")
@@ -164,6 +165,22 @@ def messages(request: Request) -> Dict[str, Any]:
         session_id, before, limit = hr_history.parse_query(dict(request.query_params))
         return hr_history.read_page(session_id, before=before, limit=limit)
     except hr_history.PageError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+
+
+@router.post(hr_routes.ROUTE_SESSION_TITLE)
+def session_title(request: Request) -> Dict[str, Any]:
+    """Rename one stored session, which ``session.title`` over the socket cannot do (see
+    :mod:`hr_sessions`).
+
+    Sync like the reads, and for the same reason: the write is blocking SQLite and FastAPI runs a
+    sync handler on a worker thread rather than on the dashboard's loop.
+    """
+    _require_device(request)
+    try:
+        session_id, title = hr_sessions.parse_query(dict(request.query_params))
+        return hr_sessions.set_title(session_id, title)
+    except hr_sessions.SessionOpError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
 
 

@@ -18,7 +18,7 @@ PLUGIN_NAME = "hermes-odyssey"
 #: Reported on ``/health`` so the phone can refuse a desktop half it is too old to talk to.
 #: Keep in step with ``version`` in ``plugin.yaml`` and ``dashboard/manifest.json``;
 #: ``tests/test_manifests.py`` fails when they drift.
-PLUGIN_VERSION = "0.1.0"
+PLUGIN_VERSION = "0.2.0"
 
 API_PREFIX = f"/api/plugins/{PLUGIN_NAME}"
 
@@ -38,12 +38,18 @@ ROUTE_MESSAGES = "/messages"
 #: whichever server saw it first.
 ROUTE_MEDIA = "/media"
 
+#: Rename a stored session (``hr_sessions``). A POST, because it writes, but with its arguments in
+#: the query string like every route here: the seam matches paths exactly, and a bodyless POST is
+#: what lets the gateway's own host answer it with the dispatch it already has.
+ROUTE_SESSION_TITLE = "/session-title"
+
 #: Every path the token seam must recognise, absolute.
 TOKEN_ROUTES: tuple[str, ...] = (
     f"{API_PREFIX}{ROUTE_HEALTH}",
     f"{API_PREFIX}{ROUTE_WS_TICKET}",
     f"{API_PREFIX}{ROUTE_MESSAGES}",
     f"{API_PREFIX}{ROUTE_MEDIA}",
+    f"{API_PREFIX}{ROUTE_SESSION_TITLE}",
 )
 
 #: Path of the JSON-RPC gateway socket, the same on every host: the dashboard mounts it there and

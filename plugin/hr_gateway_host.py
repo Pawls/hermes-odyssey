@@ -41,13 +41,14 @@ import time
 from typing import Any, Awaitable, Callable, Optional
 
 try:  # package import (``hermes_plugins.hermes_odyssey``)
-    from . import hr_history, hr_listener, hr_media, hr_routes, hr_wsauth
+    from . import hr_history, hr_listener, hr_media, hr_routes, hr_sessions, hr_wsauth
     from .hr_provider import PROVIDER_NAME
 except ImportError:  # standalone path load
     import hr_history  # type: ignore[no-redef]
     import hr_listener  # type: ignore[no-redef]
     import hr_media  # type: ignore[no-redef]
     import hr_routes  # type: ignore[no-redef]
+    import hr_sessions  # type: ignore[no-redef]
     import hr_wsauth  # type: ignore[no-redef]
     from hr_provider import PROVIDER_NAME  # type: ignore[no-redef]
 
@@ -62,6 +63,7 @@ _HEALTH_PATH = f"{hr_routes.API_PREFIX}{hr_routes.ROUTE_HEALTH}"
 _WS_TICKET_PATH = f"{hr_routes.API_PREFIX}{hr_routes.ROUTE_WS_TICKET}"
 _MESSAGES_PATH = f"{hr_routes.API_PREFIX}{hr_routes.ROUTE_MESSAGES}"
 _MEDIA_PATH = f"{hr_routes.API_PREFIX}{hr_routes.ROUTE_MEDIA}"
+_SESSION_TITLE_PATH = f"{hr_routes.API_PREFIX}{hr_routes.ROUTE_SESSION_TITLE}"
 
 #: The WebSocket handler. Resolved lazily because importing it imports ``tui_gateway.server``;
 #: tests set it to a stub so a socket can be driven without a gateway in the process.
@@ -211,6 +213,18 @@ class GatewayHost:
                 # streaming socket the phone has open.
                 body = await asyncio.to_thread(hr_history.read_page, session_id, before=before, limit=limit)
             except hr_history.PageError as exc:
+                await hr_listener._send_error(send, hr_listener._Rejected(exc.status, exc.detail))
+                return
+        elif path == _SESSION_TITLE_PATH and method == "POST":
+            from urllib.parse import parse_qsl
+
+            params = dict(parse_qsl(scope.get("query_string", b"").decode("latin-1")))
+            try:
+                session_id, title = hr_sessions.parse_query(params)
+                # Off this loop like the reads: the write is blocking SQLite and takes the store's
+                # write lock, and this loop carries every streaming socket the phone has open.
+                body = await asyncio.to_thread(hr_sessions.set_title, session_id, title)
+            except hr_sessions.SessionOpError as exc:
                 await hr_listener._send_error(send, hr_listener._Rejected(exc.status, exc.detail))
                 return
         elif path == _MEDIA_PATH and method == "GET":
