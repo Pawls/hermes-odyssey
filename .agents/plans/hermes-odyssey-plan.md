@@ -364,6 +364,32 @@ Next up: this plan's remaining work (catalog PR, Play listing) moved to the app 
 chat-quality plan as its final slice, behind chat work and a full local test pass. Work continues
 there.
 
+### ~~V9 — A yield no longer erases the new host's record~~ · Opus 5 / high — SHIPPED 2026-09-18
+
+V3 closed on an unproven line: "a real phone crossing a handover, which needs the desktop app
+restarted with the new plugin and Paul's thumb." The app repo's C9b walked it on 2026-09-18 with a
+paired Galaxy S10 on `release 0.1.1`, and the first handover broke the rule the whole design rests
+on.
+
+`_release()` ended with an unconditional `_clear_runtime()`. A yielding host closes its socket at
+the top of uvicorn's `server.shutdown()` and returns from it at the bottom, and the claimant binds
+in that gap - 44 ms, measured twice from the logs (the dashboard bound at 13:44:43.322 and
+13:53:24.683; the gateway's yield returned at .381 and .727). So the record the yielder deleted was
+the *new* host's. With no holder to read, `host_decision` answers `bind` rather than `wait` or
+`claim`, and every candidate retries a bind it can never win: the desktop app opened and never got
+the port, the phone stayed on the dashboard, `hermes odyssey status` said "not recorded as running"
+while the socket was plainly serving, and two processes logged an ERROR every 3 s into
+`gateway.log`, `errors.log` and `agent.log`.
+
+The fix is the guard `_clear_claim` already had: drop the record only while its `pid` is still this
+process's. One regression test (`test_a_yield_leaves_the_claimants_record_alone`), suite at 266.
+
+- Visible: `hermes odyssey status` names the right host after every handover, and the phone follows.
+- Verify: walked gateway -> dashboard -> desktop -> dashboard -> gateway with the phone live
+  throughout and a turn streamed under two different hosts; zero bind errors in `gateway.log` after
+  the fix, against 18 in the 90 s before it. Rows in the app repo's `docs/TESTING.md` § C9b.
+- Kill: none - the guard is three lines and the failure it removes is total.
+
 ## Rejected
 
 - **Retry on 4001 as the fix for the lost message.** The refusal on record was 4090, which no retry

@@ -412,9 +412,17 @@ def _write_runtime() -> None:
 
 
 def _clear_runtime() -> None:
+    """Drop the runtime record, but only while it is still this process's.
+
+    A yielding host closes its socket at the top of ``server.shutdown()`` and returns from it
+    later, so the claimant binds and records itself in between (44 ms, twice, 2026-09-18). An
+    unconditional delete erased that record, leaving no holder to wait on and a permanent deadlock.
+    """
     try:
+        if int((read_runtime() or {}).get("pid") or 0) != os.getpid():
+            return
         runtime_path().unlink(missing_ok=True)
-    except OSError:
+    except (OSError, TypeError, ValueError):
         pass
 
 

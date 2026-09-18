@@ -201,3 +201,26 @@ def test_a_host_yields_to_a_live_desktop_claim_and_holds_against_a_dead_one(
     assert not listener.state.running
     assert "yielded" in listener.state.error and "desktop" in listener.state.error
     assert recorded is None
+
+
+def test_a_yield_leaves_the_claimants_record_alone(listener, monkeypatch, other_pid):
+    """The claimant binds while the yielder is still inside ``server.shutdown()``.
+
+    Measured at 44 ms on 2026-09-18, twice: the socket closes at the top of the shutdown and the
+    record is dropped at the bottom, so by then it is the *new* host's. Deleting it left the host
+    rule with no holder, and every candidate - including the yielder - retried a bind it could
+    never win, forever.
+    """
+    _as(listener, monkeypatch, "dashboard")
+    monkeypatch.setenv("HERMES_ODYSSEY_PORT", str(_free_port()))
+
+    async def scenario():
+        assert await listener.host_tick(1) == "bound"
+        _record(listener, "claim", pid=other_pid, surface="desktop")
+        _record(listener, "runtime", pid=other_pid, surface="desktop", port=9443)
+        yielded = await listener.host_tick(1)
+        return yielded, listener.read_runtime()
+
+    yielded, recorded = asyncio.run(scenario())
+    assert yielded == "yield"
+    assert recorded == {"pid": other_pid, "surface": "desktop", "port": 9443}
